@@ -1,0 +1,69 @@
+from decimal import Decimal
+
+
+async def seed_product(client):
+    response = await client.post(
+        "/api/v1/products",
+        json={
+            "sku": "TEST-001",
+            "slug": "test-robot",
+            "name": "测试巡检机器人",
+            "description": "适合仓储巡检和目标识别",
+            "base_price": "1000.00",
+            "capabilities": ["目标识别"],
+            "use_cases": ["巡检"],
+            "specs": {"battery_hours": 4},
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+async def test_health(client):
+    response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+async def test_product_search_and_assistant(client):
+    product = await seed_product(client)
+    response = await client.get("/api/v1/products", params={"query": "巡检"})
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+
+    response = await client.post("/api/v1/assistant/messages", json={"message": "我需要巡检机器人"})
+    assert response.status_code == 200
+    assert response.json()["recommendations"][0]["product_id"] == product["id"]
+
+
+async def test_quote_confirm_and_idempotent_order(client):
+    product = await seed_product(client)
+    quote_response = await client.post(
+        "/api/v1/quotes",
+        json={
+            "customer_name": "张三",
+            "customer_email": "zhang@example.com",
+            "items": [{"product_id": product["id"], "quantity": 2}],
+        },
+    )
+    assert quote_response.status_code == 201
+    quote = quote_response.json()
+    assert Decimal(quote["total"]) == Decimal("2000.00")
+
+    confirm = await client.post(f"/api/v1/quotes/{quote['id']}/confirm", params={"version": 1})
+    assert confirm.status_code == 200
+    assert confirm.json()["status"] == "CONFIRMED"
+
+    first = await client.post(
+        "/api/v1/orders",
+        params={"quote_id": quote["id"]},
+        headers={"Idempotency-Key": "quote-order-001"},
+    )
+    second = await client.post(
+        "/api/v1/orders",
+        params={"quote_id": quote["id"]},
+        headers={"Idempotency-Key": "quote-order-001"},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] == second.json()["id"]
