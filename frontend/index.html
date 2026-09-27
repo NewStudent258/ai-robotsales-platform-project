@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="AI 机器人产品与智能选型平台" />
+    <title>ROBOTIQ | AI 机器人选型平台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="ROBOTIQ 首页"><span class="brand-mark">R</span><span>ROBOTIQ</span></a>
+      <nav class="main-nav" aria-label="主导航"><a href="#products">产品</a><a href="#solutions">解决方案</a><a href="#developer">开发者</a></nav>
+      <button class="assistant-trigger" id="open-assistant"><span class="status-dot"></span>AI 智能选型</button>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="hero-copy"><p class="eyebrow">ROBOTICS, ACCELERATED</p><h1>把下一个机器人项目，<em>变成现实。</em></h1><p class="hero-lede">从需求理解到方案报价，ROBOTIQ 用智能助手帮你找到真正适合的机器人平台。</p><div class="hero-actions"><a class="button button-primary" href="#products">探索产品 <span>↗</span></a><button class="button button-ghost" id="hero-assistant">描述你的项目 <span>→</span></button></div><div class="hero-proof"><span>01</span><span class="proof-line"></span><span>教育 · 巡检 · 仓储 · 科研</span></div></div>
+        <div class="hero-art" aria-label="机器人产品视觉"><div class="grid-floor"></div><div class="halo halo-one"></div><div class="halo halo-two"></div><div class="robot-silhouette"><div class="robot-head"><span class="robot-eye"></span><span class="robot-eye"></span></div><div class="robot-neck"></div><div class="robot-body"><span class="sensor"></span><span class="sensor sensor-two"></span></div><div class="robot-wheel wheel-left"></div><div class="robot-wheel wheel-right"></div></div><div class="hero-spec spec-top"><strong>EDGE AI</strong><span>REAL-TIME PERCEPTION</span></div><div class="hero-spec spec-bottom"><strong>8.4<span>TOPS</span></strong><span>COMPUTE PERFORMANCE</span></div></div>
+      </section>
+      <section class="section products-section" id="products"><div class="section-heading"><div><p class="eyebrow">BUILD YOUR PLATFORM</p><h2>找到适合你的机器人。</h2></div><p class="section-note">从入门开发套件到专业巡检平台，按场景筛选，快速比较。</p></div><div class="filter-row"><button class="filter active" data-filter="all">全部产品</button><button class="filter" data-filter="教育">教育与科研</button><button class="filter" data-filter="巡检">巡检与仓储</button><button class="filter" data-filter="开发者">开发者</button><span class="product-count" id="product-count"></span></div><div class="product-grid" id="product-grid"><div class="loading-state">正在加载产品目录…</div></div></section>
+      <section class="assistant-banner" id="solutions"><div><p class="eyebrow">MEET YOUR SALES ENGINEER</p><h2>不确定从哪里开始？<br /><em>告诉助手你的目标。</em></h2></div><div class="banner-right"><p>描述你的场景、预算和期望结果，AI 助手会给出有依据的推荐，并继续帮你完成报价。</p><button class="button button-light" id="banner-assistant">开始智能选型 <span>↗</span></button></div></section>
+      <section class="developer-section" id="developer"><div class="developer-label">OPEN PLATFORM</div><div><h2>为下一个<br /><em>机器人时代</em>而构建。</h2><p>开放的 Python SDK、丰富的传感器支持和清晰的开发文档，让团队从第一个原型快速走向真实部署。</p><a class="text-link" href="#products">查看开发资源 <span>→</span></a></div><div class="dev-stat"><strong>24/7</strong><span>可观测的<br />机器人运行状态</span></div></section>
+    </main>
+    <footer class="site-footer"><div class="brand"><span class="brand-mark">R</span><span>ROBOTIQ</span></div><span>智能机器人销售平台 · 2026</span><span>产品 · 方案 · 开发者</span></footer>
+    <aside class="assistant-panel" id="assistant-panel" aria-label="AI 智能选型助手" aria-hidden="true"><div class="panel-backdrop" id="close-assistant"></div><div class="panel-content"><div class="panel-header"><div><p class="eyebrow">ROBOTIQ ASSISTANT</p><h2>一起找到<br /><em>正确的方案。</em></h2></div><button class="close-button" id="close-assistant-button" aria-label="关闭助手">×</button></div><div class="chat-messages" id="chat-messages"><div class="message assistant-message"><span class="message-icon">R</span><div>你好，我是 ROBOTIQ 智能选型助手。告诉我你的使用场景、预算或想实现的功能，我会帮你缩小选择范围。</div></div></div><div class="quick-prompts"><button data-prompt="我需要一款用于仓储巡检的机器人">仓储巡检</button><button data-prompt="我想做一个机器人视觉实验">机器人视觉</button><button data-prompt="适合学生学习的开发套件">教育开发</button></div><form class="chat-form" id="chat-form"><input id="chat-input" autocomplete="off" placeholder="描述你的机器人项目…" aria-label="描述你的机器人项目" /><button type="submit" aria-label="发送消息">↑</button></form><p class="panel-footnote">AI 推荐基于当前产品目录，报价由价格服务确认。</p></div></aside>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

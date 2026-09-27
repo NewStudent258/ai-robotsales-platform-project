@@ -1,6 +1,6 @@
 # AI Robot Sales Platform
 
-基于 Python、FastAPI 和 MySQL 的 AI 机器人售卖平台后端基线。当前版本包含产品目录、Mock Agent 选型、报价、报价确认、幂等创建订单和基础测试。
+基于 Python、FastAPI 和 MySQL 的 AI 机器人售卖平台。当前版本包含 NVIDIA 风格的产品首页、产品目录、Mock Agent 选型、报价、报价确认、幂等创建订单和基础测试。
 
 ## 本地启动
 
@@ -31,6 +31,7 @@ uvicorn app.main:app --reload
 ```
 
 接口文档地址：`http://127.0.0.1:8000/docs`。
+产品首页地址：`http://127.0.0.1:8000/`。
 
 ## 测试
 

@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import assistant, commerce, products
 from app.core.config import get_settings
@@ -21,6 +24,8 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -31,6 +36,11 @@ app.add_middleware(
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(commerce.router, prefix="/api/v1")
+
+
+@app.get("/", include_in_schema=False)
+async def frontend() -> FileResponse:
+    return FileResponse(frontend_dir / "index.html")
 
 
 @app.get("/health", tags=["system"])
