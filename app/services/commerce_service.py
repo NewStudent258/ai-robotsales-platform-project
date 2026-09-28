@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from hashlib import sha256
+from hmac import compare_digest
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -43,6 +44,8 @@ class CommerceService:
         by_id = {product.id: product for product in products}
         if len(by_id) != len(set(product_ids)):
             raise HTTPException(status_code=404, detail={"code": "PRODUCT_NOT_FOUND"})
+        if len({product.currency for product in products}) != 1:
+            raise HTTPException(status_code=422, detail={"code": "MIXED_CURRENCY"})
         subtotal = Decimal("0")
         item_rows: list[QuoteItem] = []
         for item in payload.items:
@@ -58,9 +61,10 @@ class CommerceService:
                     line_total=line_total,
                 )
             )
-        tax = (subtotal * payload.tax_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tax = Decimal("0.00")
         quote = Quote(
             quote_number=_number("Q"),
+            access_token=uuid4().hex + uuid4().hex,
             customer_name=payload.customer_name,
             customer_email=payload.customer_email,
             currency=products[0].currency,
@@ -69,7 +73,7 @@ class CommerceService:
             total=subtotal + tax,
             status="PENDING_CONFIRMATION",
             expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-            snapshot={"product_ids": product_ids, "tax_rate": str(payload.tax_rate)},
+            snapshot={"product_ids": product_ids, "pricing_policy": "base-price-v1"},
         )
         self.session.add(quote)
         await self.session.flush()
@@ -87,6 +91,12 @@ class CommerceService:
         items = list(await self.session.scalars(select(QuoteItem).where(QuoteItem.quote_id == quote_id)))
         return quote, items
 
+    async def require_quote_access(self, quote_id: int, access_token: str) -> Quote:
+        quote = await self.session.get(Quote, quote_id)
+        if quote is None or not compare_digest(quote.access_token, access_token):
+            raise HTTPException(status_code=404, detail={"code": "QUOTE_NOT_FOUND"})
+        return quote
+
     async def confirm_quote(self, quote_id: int, version: int) -> Quote:
         quote = await self.session.get(Quote, quote_id, with_for_update=True)
         if quote is None:
@@ -103,6 +113,7 @@ class CommerceService:
         return quote
 
     async def create_order(self, quote_id: int, idempotency_key: str) -> Order:
+        request_hash = sha256(str(quote_id).encode()).hexdigest()
         existing = await self.session.scalar(
             select(IdempotencyRecord).where(
                 IdempotencyRecord.operation == "create_order",
@@ -110,16 +121,18 @@ class CommerceService:
             )
         )
         if existing:
+            if existing.request_hash != request_hash:
+                raise HTTPException(status_code=409, detail={"code": "IDEMPOTENCY_KEY_REUSED"})
             order = await self.session.get(Order, existing.response.get("order_id"))
             if order:
                 return order
+            raise HTTPException(status_code=409, detail={"code": "IDEMPOTENCY_RESULT_MISSING"})
 
         quote = await self.session.get(Quote, quote_id, with_for_update=True)
         if quote is None:
             raise HTTPException(status_code=404, detail={"code": "QUOTE_NOT_FOUND"})
         if quote.status != "CONFIRMED":
             raise HTTPException(status_code=409, detail={"code": "QUOTE_NOT_CONFIRMED"})
-        request_hash = sha256(f"{quote_id}:{quote.version}".encode()).hexdigest()
         order = Order(
             order_number=_number("O"),
             quote_id=quote.id,

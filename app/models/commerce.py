@@ -12,6 +12,7 @@ class Quote(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     quote_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     customer_name: Mapped[str] = mapped_column(String(120))
     customer_email: Mapped[str] = mapped_column(String(200))
     currency: Mapped[str] = mapped_column(String(3), default="CNY")

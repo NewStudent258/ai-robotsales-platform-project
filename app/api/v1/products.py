@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.product import ProductCreate, ProductList, ProductRead
 from app.services.product_service import ProductService
@@ -29,4 +30,6 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)) -> Pr
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
 async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> ProductRead:
+    if not get_settings().debug:
+        raise HTTPException(status_code=403, detail={"code": "ADMIN_AUTH_REQUIRED"})
     return await ProductService(db).create_product(payload)

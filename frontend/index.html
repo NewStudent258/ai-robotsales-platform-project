@@ -24,6 +24,28 @@
     </main>
     <footer class="site-footer"><div class="brand"><span class="brand-mark">R</span><span>ROBOTIQ</span></div><span>智能机器人销售平台 · 2026</span><span>产品 · 方案 · 开发者</span></footer>
     <aside class="assistant-panel" id="assistant-panel" aria-label="AI 智能选型助手" aria-hidden="true"><div class="panel-backdrop" id="close-assistant"></div><div class="panel-content"><div class="panel-header"><div><p class="eyebrow">ROBOTIQ ASSISTANT</p><h2>一起找到<br /><em>正确的方案。</em></h2></div><button class="close-button" id="close-assistant-button" aria-label="关闭助手">×</button></div><div class="chat-messages" id="chat-messages"><div class="message assistant-message"><span class="message-icon">R</span><div>你好，我是 ROBOTIQ 智能选型助手。告诉我你的使用场景、预算或想实现的功能，我会帮你缩小选择范围。</div></div></div><div class="quick-prompts"><button data-prompt="我需要一款用于仓储巡检的机器人">仓储巡检</button><button data-prompt="我想做一个机器人视觉实验">机器人视觉</button><button data-prompt="适合学生学习的开发套件">教育开发</button></div><form class="chat-form" id="chat-form"><input id="chat-input" autocomplete="off" placeholder="描述你的机器人项目…" aria-label="描述你的机器人项目" /><button type="submit" aria-label="发送消息">↑</button></form><p class="panel-footnote">AI 推荐基于当前产品目录，报价由价格服务确认。</p></div></aside>
+    <dialog class="quote-dialog" id="quote-dialog" aria-labelledby="quote-title">
+      <div class="quote-header"><div><p class="eyebrow">BUILD YOUR ORDER</p><h2 id="quote-title">配置与报价</h2></div><button class="close-button" id="close-quote" aria-label="关闭报价窗口" type="button">×</button></div>
+      <div id="quote-step-form">
+        <p class="quote-product" id="selected-product"></p>
+        <form id="quote-form" class="quote-form">
+          <label>数量<input type="number" name="quantity" min="1" max="10000" value="1" required /></label>
+          <label>联系人<input type="text" name="customer_name" maxlength="120" autocomplete="name" required /></label>
+          <label>邮箱<input type="email" name="customer_email" maxlength="200" autocomplete="email" required /></label>
+          <button class="button button-primary" type="submit">生成报价 <span>→</span></button>
+        </form>
+      </div>
+      <div id="quote-step-review" hidden>
+        <p class="quote-ref" id="quote-ref"></p><div id="quote-lines"></div>
+        <dl class="quote-totals"><div><dt>小计</dt><dd id="quote-subtotal"></dd></div><div><dt>税额</dt><dd id="quote-tax"></dd></div><div class="grand-total"><dt>合计</dt><dd id="quote-total"></dd></div></dl>
+        <p class="quote-expiry" id="quote-expiry"></p>
+        <label class="terms"><input type="checkbox" id="quote-terms" />我已核对产品、数量、金额和报价有效期，并确认创建订单。</label>
+        <button class="quote-back" id="edit-configuration" type="button">修改数量或联系人</button>
+        <button class="button button-primary" id="confirm-order" type="button" disabled>确认报价并创建订单 <span>→</span></button>
+      </div>
+      <div id="quote-step-success" hidden><p class="eyebrow">ORDER CREATED</p><h3>订单已创建。</h3><p id="order-summary"></p><button class="button button-ghost" id="finish-order" type="button">继续浏览产品</button></div>
+      <p class="quote-error" id="quote-error" role="alert" hidden></p>
+    </dialog>
     <script src="/static/app.js" defer></script>
   </body>
 </html>

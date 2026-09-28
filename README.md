@@ -1,6 +1,6 @@
 # AI Robot Sales Platform
 
-基于 Python、FastAPI 和 MySQL 的 AI 机器人售卖平台。当前版本包含 NVIDIA 风格的产品首页、产品目录、Mock Agent 选型、报价、报价确认、幂等创建订单和基础测试。
+基于 Python、FastAPI 和 MySQL 的 AI 机器人售卖平台。当前版本包含产品首页、产品目录、样例选型助手，以及从产品配置、报价确认到创建订单的客户流程。
 
 ## 本地启动
 
@@ -18,9 +18,10 @@ pip install -e ".[dev]"
 docker compose up -d mysql redis
 ```
 
-3. 复制 `.env.example` 为 `.env`，执行种子数据：
+3. 复制 `.env.example` 为 `.env`，按本机 MySQL 账号修改 `DATABASE_URL`（示例凭据仅供 Docker 开发环境使用），执行数据库迁移和种子数据：
 
 ```powershell
+alembic upgrade head
 python scripts/seed_products.py
 ```
 
@@ -39,4 +40,4 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-测试使用 SQLite 内存库，生产和开发环境使用 MySQL。价格、报价和订单服务已经与 Agent 边界分离；后续接入真实 LLM 时，只替换 `app/agents/` 的 Provider 和编排逻辑，不改变确定性价格与订单服务。
+测试使用 SQLite 内存库，生产和开发环境使用 MySQL。金额由服务端按 `base-price-v1` 计算，当前税额固定为 0；正式税费、折扣和支付尚未接入。报价返回的 `access_token` 是访问该报价与订单的凭证，不应放进 URL 或日志。产品写入 API 仅在 `DEBUG=true` 的开发模式开放，正式运营后台鉴权仍待实现。选型助手目前是 Mock Provider，推荐仅用于演示，不应当作正式采购依据。

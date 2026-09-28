@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QuoteItemRequest(BaseModel):
@@ -10,10 +10,11 @@ class QuoteItemRequest(BaseModel):
 
 
 class QuoteCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     customer_name: str = Field(min_length=1, max_length=120)
-    customer_email: str = Field(min_length=3, max_length=200)
+    customer_email: str = Field(min_length=3, max_length=200, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     items: list[QuoteItemRequest] = Field(min_length=1)
-    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=1)
 
 
 class QuoteItemRead(BaseModel):
@@ -27,6 +28,7 @@ class QuoteItemRead(BaseModel):
 class QuoteRead(BaseModel):
     id: int
     quote_number: str
+    access_token: str
     customer_name: str
     customer_email: str
     currency: str

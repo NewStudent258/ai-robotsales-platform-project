@@ -2,6 +2,7 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["AUTO_CREATE_TABLES"] = "false"
+os.environ["DEBUG"] = "true"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

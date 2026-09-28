@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "AI Robot Sales Platform"
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     database_url: str = "mysql+asyncmy://robot_sales:robot_sales@127.0.0.1:3306/robot_sales"
     auto_create_tables: bool = False
     cors_origins: str = "http://localhost:3000"

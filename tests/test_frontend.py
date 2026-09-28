@@ -12,6 +12,9 @@ async def test_frontend_home_and_static_assets(client):
     assert script.status_code == 200
     assert "assistant-panel" in styles.text
     assert "/api/v1/assistant/messages" in script.text
+    assert "/api/v1/quotes" in script.text
+    assert "Idempotency-Key" in script.text
+    assert "innerHTML" not in script.text
 
 
 def test_frontend_source_files_exist():
