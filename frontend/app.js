@@ -261,3 +261,4 @@ document.querySelector('#confirm-order').addEventListener('click', async (event)
 });
 
 loadProducts();
+if (new URLSearchParams(window.location.search).get('assistant') === '1') openAssistant();

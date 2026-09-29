@@ -43,6 +43,11 @@ async def frontend() -> FileResponse:
     return FileResponse(frontend_dir / "index.html")
 
 
+@app.get("/sales", include_in_schema=False)
+async def sales_frontend() -> FileResponse:
+    return FileResponse(frontend_dir / "sales.html")
+
+
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "ok", "environment": settings.environment}

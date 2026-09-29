@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="ROBOTIQ 虚拟机器人销售平台" />
+    <title>ROBOTIQ Sales Floor | 机器人销售平台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/sales.css" />
+  </head>
+  <body class="sales-page">
+    <header class="sales-header">
+      <a class="brand" href="/" aria-label="ROBOTIQ 首页"><span class="brand-mark">R</span><span>ROBOTIQ</span></a>
+      <nav class="sales-nav" aria-label="销售平台导航"><a class="active" href="/sales">产品目录</a><a href="#solutions">采购方案</a><a href="/#developer">开发资源</a></nav>
+      <div class="sales-header-actions"><a class="sales-assistant-link" href="/?assistant=1"><span class="status-dot"></span>让助手推荐</a><button class="cart-trigger" id="open-cart" type="button" aria-label="打开报价单"><span>报价单</span><strong id="cart-count">0</strong></button></div>
+    </header>
+
+    <main>
+      <section class="sales-hero">
+        <div class="sales-hero-copy">
+          <p class="eyebrow">ROBOTIQ SALES FLOOR / 2026</p>
+          <h1>选对机器人，<em>更快落地。</em></h1>
+          <p>一组用于教育、巡检、仓储和实验室的虚拟产品。先比较能力，再把合适的组合放入报价单。</p>
+          <div class="sales-hero-actions"><a class="sales-button sales-button-dark" href="#catalog">浏览产品 <span>↓</span></a><a class="sales-text-link" href="/?assistant=1">不知道选哪款？交给助手 <span>↗</span></a></div>
+        </div>
+        <div class="sales-hero-panel" aria-label="销售平台概览">
+          <div class="hero-panel-top"><span>CATALOG STATUS</span><strong><i></i> LIVE DEMO</strong></div>
+          <div class="hero-panel-grid"><div><strong id="hero-product-total">00</strong><span>虚拟产品</span></div><div><strong>05</strong><span>应用场景</span></div><div><strong>1:1</strong><span>助手协同</span></div></div>
+          <div class="hero-panel-foot"><span>价格由服务端报价</span><span>造型图仅作示意</span></div>
+        </div>
+      </section>
+
+      <section class="catalog-section" id="catalog">
+        <div class="catalog-heading"><div><p class="eyebrow">EXPLORE THE FLEET</p><h2>把需求，变成一份清晰的产品清单。</h2></div><p>按场景筛选，查看关键参数，选择一款或多款加入报价单。</p></div>
+        <div class="catalog-toolbar"><label class="search-box"><span>⌕</span><input id="product-search" type="search" placeholder="搜索产品、能力或场景" aria-label="搜索产品、能力或场景" /></label><div class="category-tabs" role="group" aria-label="产品场景筛选"><button class="category-tab active" data-category="全部" type="button">全部</button><button class="category-tab" data-category="教育" type="button">教育科研</button><button class="category-tab" data-category="巡检" type="button">巡检</button><button class="category-tab" data-category="仓储" type="button">仓储</button><button class="category-tab" data-category="服务" type="button">服务</button><button class="category-tab" data-category="开发者" type="button">开发者</button></div><label class="sort-box"><span>排序</span><select id="product-sort" aria-label="产品排序"><option value="recommended">推荐排序</option><option value="price-asc">价格从低到高</option><option value="price-desc">价格从高到低</option></select></label></div>
+        <div class="catalog-layout"><div class="catalog-results"><div class="results-meta"><span id="results-label">正在加载产品目录…</span><span class="results-note">全部为虚拟演示数据</span></div><div class="sales-product-grid" id="sales-product-grid"><div class="catalog-loading">正在加载产品目录…</div></div></div><aside class="quote-rail" id="quote-rail"><div class="quote-rail-header"><div><p class="eyebrow">YOUR SHORTLIST</p><h3>我的报价单</h3></div><button class="icon-button" id="close-cart" type="button" aria-label="关闭报价单">×</button></div><div class="quote-items" id="quote-items"><div class="empty-quote"><strong>还没有选择产品</strong><span>把产品加入报价单，服务端会按数量重新计算价格。</span></div></div><div class="quote-rail-footer"><div><span>预估小计</span><strong id="cart-total">¥0.00</strong></div><button class="sales-button sales-button-green" id="start-quote" type="button" disabled>发起正式报价 <span>→</span></button><p>正式报价前还会确认联系人、数量与有效期。</p></div></aside></div>
+      </section>
+
+      <section class="sales-assistant-band" id="solutions"><div><p class="eyebrow">NEED A SECOND OPINION?</p><h2>描述你的场景，<em>让助手先排个优先级。</em></h2></div><div><p>如果你还在比较移动底盘、教育套件和仓储 AMR，可以先告诉助手预算、环境和目标，再回到销售平台配置。</p><a class="sales-button sales-button-light" href="/?assistant=1">打开智能助手 <span>↗</span></a></div></section>
+    </main>
+
+    <footer class="sales-footer"><div class="brand"><span class="brand-mark">R</span><span>ROBOTIQ</span></div><span>虚拟产品销售演示 · 造型图仅作示意</span><a href="/">返回首页 ↑</a></footer>
+
+    <dialog class="product-dialog" id="product-dialog" aria-labelledby="product-dialog-title"><div class="dialog-top"><p class="eyebrow">PRODUCT BRIEF</p><button class="icon-button" id="close-product" type="button" aria-label="关闭产品详情">×</button></div><div id="product-dialog-content"></div></dialog>
+
+    <dialog class="sales-quote-dialog" id="sales-quote-dialog" aria-labelledby="sales-quote-title"><div class="dialog-top"><div><p class="eyebrow">BUILD YOUR REQUEST</p><h2 id="sales-quote-title">确认报价信息</h2></div><button class="icon-button" id="close-sales-quote" type="button" aria-label="关闭报价表单">×</button></div><div id="sales-quote-form-step"><div class="quote-form-summary" id="sales-quote-summary"></div><form id="sales-quote-form" class="sales-quote-form"><label>联系人<input name="customer_name" maxlength="120" autocomplete="name" required /></label><label>邮箱<input type="email" name="customer_email" maxlength="200" autocomplete="email" required /></label><button class="sales-button sales-button-dark" type="submit">生成报价 <span>→</span></button></form></div><div id="sales-quote-review-step" hidden><p class="quote-reference" id="sales-quote-reference"></p><div id="sales-quote-lines"></div><dl class="sales-totals"><div><dt>小计</dt><dd id="sales-quote-subtotal"></dd></div><div><dt>税额</dt><dd id="sales-quote-tax"></dd></div><div class="sales-grand-total"><dt>合计</dt><dd id="sales-quote-total"></dd></div></dl><p class="sales-expiry" id="sales-quote-expiry"></p><label class="sales-terms"><input id="sales-quote-terms" type="checkbox" />我已核对产品、数量、金额和有效期，确认创建订单。</label><button class="sales-button sales-button-green" id="sales-confirm-order" type="button" disabled>确认报价并创建订单 <span>→</span></button></div><div id="sales-quote-success" hidden><p class="eyebrow">ORDER CREATED</p><h3>订单已创建。</h3><p id="sales-order-summary"></p><button class="sales-button sales-button-dark" id="finish-sales-quote" type="button">继续浏览产品</button></div><p class="sales-error" id="sales-error" role="alert" hidden></p></dialog>
+
+    <script src="/static/sales.js" defer></script>
+  </body>
+</html>
