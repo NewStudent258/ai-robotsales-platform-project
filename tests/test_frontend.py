@@ -16,6 +16,18 @@ async def test_frontend_home_and_static_assets(client):
     assert "Idempotency-Key" in script.text
     assert "innerHTML" not in script.text
 
+    sales = await client.get("/sales")
+    assert sales.status_code == 200
+    assert "ROBOTIQ SALES FLOOR" in sales.text
+
+    sales_script = await client.get("/static/sales.js")
+    sales_styles = await client.get("/static/sales.css")
+    assert sales_script.status_code == 200
+    assert sales_styles.status_code == 200
+    assert "/api/v1/products" in sales_script.text
+    assert "/api/v1/quotes" in sales_script.text
+    assert "innerHTML" not in sales_script.text
+
 
 def test_frontend_source_files_exist():
     root = Path(__file__).parents[1]

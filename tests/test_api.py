@@ -72,6 +72,36 @@ async def test_quote_confirm_and_idempotent_order(client):
     assert first.json()["id"] == second.json()["id"]
 
 
+async def test_quote_with_multiple_products_uses_server_prices(client):
+    first = await seed_product(client)
+    second = await client.post(
+        "/api/v1/products",
+        json={
+            "sku": "TEST-002",
+            "slug": "test-robot-two",
+            "name": "测试教育机器人",
+            "description": "用于课程演示",
+            "base_price": "2500.00",
+            "use_cases": ["教育"],
+        },
+    )
+    assert second.status_code == 201
+    quote = await client.post(
+        "/api/v1/quotes",
+        json={
+            "customer_name": "测试用户",
+            "customer_email": "demo@example.com",
+            "items": [
+                {"product_id": first["id"], "quantity": 2},
+                {"product_id": second.json()["id"], "quantity": 3},
+            ],
+        },
+    )
+    assert quote.status_code == 201
+    assert len(quote.json()["items"]) == 2
+    assert Decimal(quote.json()["total"]) == Decimal("9500.00")
+
+
 async def test_quote_rejects_client_tax_and_mixed_currency(client):
     product = await seed_product(client)
     payload = {
