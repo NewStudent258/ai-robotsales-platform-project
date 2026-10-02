@@ -10,11 +10,13 @@
 - 当前客户路径：产品目录→选择产品和数量→服务端报价→客户确认→幂等创建订单；前端直接使用同源 `/api/v1` 接口。
 - `/sales` 由 FastAPI 提供独立销售页；商品清单从 `GET /api/v1/products` 获取，浏览器端搜索/筛选/排序及报价单仅是展示与选品状态。报价单只在浏览器 `localStorage` 保存商品 ID 和数量；联系人与访问令牌不持久化。浏览器端预估小计不是报价事实，多商品正式金额由 `POST /api/v1/quotes` 决定。
 - 当前价格策略为 `base-price-v1`：产品基础价乘数量，税额为 0；客户端税率字段被拒绝，不同币种不能合并报价。税费、折扣和交付费用规则尚未实现。
-- 新建报价生成 64 位十六进制随机访问令牌。读取/确认报价、创建/读取订单须通过 `X-Quote-Token` 提交该令牌；它不是用户身份认证，正式多租户鉴权仍需补齐。
+- 新建报价生成 64 位十六进制随机访问令牌。读取/确认报价、创建/读取订单须通过 `X-Quote-Token` 提交该令牌；它不是用户身份认证，正式多租户鉴权仍需补齐。访问令牌**仅在创建报价的响应中返回一次**，`GET /quotes/{id}` 与确认响应不再回显（`access_token: null`）；本地调试可用 `EXPOSE_QUOTE_TOKEN=true` 临时恢复回显。
 - 报价过期在确认和创建订单两条路径上都会校验：命中过期时报价落为 `EXPIRED` 并返回 `QUOTE_EXPIRED`。报价表使用 `ORDER_CREATED` 作为“已建单”状态，该状态仅表示订单已生成，不参与订单状态机。
 - 幂等键采用“先抢占后执行”：抢占在独立事务中提交，并发同键请求由唯一约束裁决，落败方等待并回放胜出方的结果，因此不会重复建单也不会返回 5xx。键被复用于不同报价时返回 `IDEMPOTENCY_KEY_REUSED`。
 - 订单状态机实现见 `app/services/commerce_service.py` 的 `ORDER_TRANSITIONS`，与 §3 表格一致，`COMPLETED`、`CANCELLED`、`EXPIRED` 为终态（出度为空集）。
-- `POST /products` 仅在开发模式开放；运营后台发布产品需在 RBAC 完成后启用。
+- 全部错误响应统一为 `{data: null, error: {code, message, retryable, handoff_required}, trace_id}`，由 `app/core/errors.py` 统一注入；每个请求都返回 `X-Trace-Id` 响应头，合法的上游 trace_id 会被沿用。参数校验错误额外给出 `error.fields`。
+- `POST /products` 需运营后台令牌 `X-Admin-Token`（配置项 `ADMIN_API_TOKEN`）。未配置令牌时一律拒绝，不再依赖 `DEBUG` 开关；正式 RBAC/OIDC 见 §7。
+- 已补充 GitHub Actions 门禁（`.github/workflows/ci.yml`）：`ruff check`、`ruff format --check`、迁移可用性、种子脚本与 `pytest`。
 
 ## 1. 架构原则与模块边界
 

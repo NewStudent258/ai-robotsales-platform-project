@@ -28,7 +28,8 @@ class QuoteItemRead(BaseModel):
 class QuoteRead(BaseModel):
     id: int
     quote_number: str
-    access_token: str
+    # 仅在创建报价时返回一次；其余读取路径默认不回显访问令牌。
+    access_token: str | None = None
     customer_name: str
     customer_email: str
     currency: str

@@ -41,6 +41,10 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-测试使用 SQLite 内存库，生产和开发环境使用 MySQL。金额由服务端按 `base-price-v1` 计算，当前税额固定为 0；正式税费、折扣和支付尚未接入。报价返回的 `access_token` 是访问该报价与订单的凭证，不应放进 URL 或日志。产品写入 API 仅在 `DEBUG=true` 的开发模式开放，正式运营后台鉴权仍待实现。选型助手目前是 Mock Provider，推荐仅用于演示，不应当作正式采购依据。
+测试使用 SQLite 内存库，生产和开发环境使用 MySQL。金额由服务端按 `base-price-v1` 计算，当前税额固定为 0；正式税费、折扣和支付尚未接入。
+
+报价返回的 `access_token` 是访问该报价与订单的凭证，**仅在创建报价时返回一次**，后续读取不会回显；它不应放进 URL 或日志。产品写入 API 需要运营后台令牌：在 `.env` 中设置 `ADMIN_API_TOKEN` 后，通过 `X-Admin-Token` 请求头调用 `POST /api/v1/products`；未配置令牌时写接口一律拒绝（默认拒绝），完整的 RBAC/OIDC 仍待实现。选型助手目前是 Mock Provider，推荐仅用于演示，不应当作正式采购依据。
+
+所有错误响应统一为 `{data, error: {code, message, retryable, handoff_required}, trace_id}`，并在 `X-Trace-Id` 响应头回传追踪标识，便于按 trace 排查问题。
 
 销售页的报价单保存在当前浏览器的 `localStorage`，只用于暂存选品；联系人和报价访问令牌不写入本地存储。页面上的小计为估算展示，正式金额以 `/api/v1/quotes` 返回结果为准。产品造型图为本地 CSS 示意图，并非真实商品实物。

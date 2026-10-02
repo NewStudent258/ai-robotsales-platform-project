@@ -44,7 +44,11 @@ async function request(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     let code;
-    try { code = (await response.json()).detail?.code; } catch { /* Use HTTP status below. */ }
+    try {
+      const body = await response.json();
+      // 统一错误封套 {error:{code}}；兼容旧的 {detail:{code}}。
+      code = body.error?.code || body.detail?.code;
+    } catch { /* Use HTTP status below. */ }
     throw new Error(errorMessages[code] || `请求失败（${response.status}），请稍后重试。`);
   }
   return response.json();
@@ -275,7 +279,8 @@ document.querySelector('#sales-confirm-order').addEventListener('click', async (
         const latest = await request(`/api/v1/quotes/${currentQuote.id}`, {
           headers: { 'X-Quote-Token': currentQuote.access_token },
         });
-        if (latest.status === 'CONFIRMED') currentQuote = latest;
+        // 读取响应不再回显访问令牌，必须保留本地持有的令牌。
+        if (latest.status === 'CONFIRMED') currentQuote = { ...latest, access_token: currentQuote.access_token };
         else throw error;
       } catch {
         showError(error.message);

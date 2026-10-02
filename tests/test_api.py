@@ -1,9 +1,12 @@
 from decimal import Decimal
 
+ADMIN = {"X-Admin-Token": "test-admin-token"}
+
 
 async def seed_product(client):
     response = await client.post(
         "/api/v1/products",
+        headers=ADMIN,
         json={
             "sku": "TEST-001",
             "slug": "test-robot",
@@ -76,6 +79,7 @@ async def test_quote_with_multiple_products_uses_server_prices(client):
     first = await seed_product(client)
     second = await client.post(
         "/api/v1/products",
+        headers=ADMIN,
         json={
             "sku": "TEST-002",
             "slug": "test-robot-two",
@@ -114,6 +118,7 @@ async def test_quote_rejects_client_tax_and_mixed_currency(client):
 
     other = await client.post(
         "/api/v1/products",
+        headers=ADMIN,
         json={
             "sku": "USD-001",
             "slug": "usd-robot",
@@ -127,7 +132,7 @@ async def test_quote_rejects_client_tax_and_mixed_currency(client):
     payload["items"].append({"product_id": other.json()["id"], "quantity": 1})
     mixed = await client.post("/api/v1/quotes", json=payload)
     assert mixed.status_code == 422
-    assert mixed.json()["detail"]["code"] == "MIXED_CURRENCY"
+    assert mixed.json()["error"]["code"] == "MIXED_CURRENCY"
 
 
 async def test_idempotency_key_cannot_be_reused_for_another_quote(client):
@@ -165,7 +170,7 @@ async def test_idempotency_key_cannot_be_reused_for_another_quote(client):
     )
     assert first.status_code == 201
     assert second.status_code == 409
-    assert second.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+    assert second.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
 
 
 async def test_quote_and_order_require_matching_access_token(client):

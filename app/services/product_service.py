@@ -11,14 +11,22 @@ class ProductService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def list_products(self, query: str | None, page: int, page_size: int) -> tuple[list[Product], int]:
+    async def list_products(
+        self, query: str | None, page: int, page_size: int
+    ) -> tuple[list[Product], int]:
         filters = [Product.is_active.is_(True)]
         if query:
             term = f"%{query.strip()}%"
             filters.append(
-                or_(Product.name.ilike(term), Product.description.ilike(term), Product.slug.ilike(term))
+                or_(
+                    Product.name.ilike(term),
+                    Product.description.ilike(term),
+                    Product.slug.ilike(term),
+                )
             )
-        total = int((await self.session.scalar(select(func.count(Product.id)).where(*filters))) or 0)
+        total = int(
+            (await self.session.scalar(select(func.count(Product.id)).where(*filters))) or 0
+        )
         result = await self.session.scalars(
             select(Product)
             .where(*filters)
@@ -46,7 +54,10 @@ class ProductService:
         words = list(dict.fromkeys(words))
         if not words:
             result = await self.session.scalars(
-                select(Product).where(Product.is_active.is_(True)).order_by(Product.id.desc()).limit(limit)
+                select(Product)
+                .where(Product.is_active.is_(True))
+                .order_by(Product.id.desc())
+                .limit(limit)
             )
             return list(result)
         predicates = []

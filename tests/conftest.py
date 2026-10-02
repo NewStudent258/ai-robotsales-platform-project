@@ -3,6 +3,8 @@ import os
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["AUTO_CREATE_TABLES"] = "false"
 os.environ["DEBUG"] = "true"
+# 测试需要创建产品：提供后台令牌，使写接口可用。
+os.environ["ADMIN_API_TOKEN"] = "test-admin-token"
 
 import pytest
 from httpx import ASGITransport, AsyncClient

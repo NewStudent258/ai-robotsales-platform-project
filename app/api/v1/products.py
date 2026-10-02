@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.schemas.product import ProductCreate, ProductList, ProductRead
 from app.services.product_service import ProductService
@@ -29,7 +29,10 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)) -> Pr
 
 
 @router.post("", response_model=ProductRead, status_code=status.HTTP_201_CREATED)
-async def create_product(payload: ProductCreate, db: AsyncSession = Depends(get_db)) -> ProductRead:
-    if not get_settings().debug:
-        raise HTTPException(status_code=403, detail={"code": "ADMIN_AUTH_REQUIRED"})
+async def create_product(
+    payload: ProductCreate,
+    db: AsyncSession = Depends(get_db),
+    actor: str = Depends(require_admin),
+) -> ProductRead:
+    # 运营写操作需后台令牌；未配置令牌时拒绝，不再依赖 DEBUG 开关。
     return await ProductService(db).create_product(payload)

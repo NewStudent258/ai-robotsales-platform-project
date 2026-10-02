@@ -51,7 +51,8 @@ os.environ["DEBUG"] = "true"
 
 - `AUTO_CREATE_TABLES = "false"` — 禁用应用 lifespan 自动建表，避免污染测试库。
 - 建表由 fixture 内 `Base.metadata.create_all` 显式完成，**每个用例独立 engine**。
-- `DEBUG = "true"` — 开放 `POST /api/v1/products`（生产环境需管理员鉴权，见 6.4）。
+- `ADMIN_API_TOKEN = "test-admin-token"` — 开放 `POST /api/v1/products`（用例以 `X-Admin-Token` 提交该令牌）。
+- `DEBUG = "true"` — 仅影响 SQL 回显等调试行为，**不再用于写接口鉴权**（见 6.4）。
 - 通过 `app.dependency_overrides[get_db]` 注入测试会话，**不触碰真实数据库**。
 
 > ⚠️ **隔离性说明**：`sqlite+aiosqlite:///:memory:` 配合独立 engine，保证用例间数据不串扰。但由此也带来**方言差异**——SQLite 与 MySQL 在 `Numeric`、行级锁（`with_for_update`）、并发语义上行为不同，见第 8.2 节缺口。
@@ -101,23 +102,33 @@ PENDING_CONFIRMATION ──confirm──> CONFIRMED ──create_order──> OR
 |---|---|---|---|---|
 | `PENDING_CONFIRMATION` | `confirm_quote` | `CONFIRMED` | `version` 匹配 | `QUOTE_VERSION_CONFLICT` (409) |
 | `PENDING_CONFIRMATION` | `confirm_quote` | `EXPIRED` | 超 `expires_at` | `QUOTE_EXPIRED` (409) |
-| `CONFIRMED` | `create_order` | `ORDER_CREATED` | 幂等键校验 | `IDEMPOTENCY_KEY_REUSED` (409) |
-| 任意 | `create_order` | — | 状态非 `CONFIRMED` | `QUOTE_NOT_CONFIRMED` (409) |
+| `CONFIRMED` | `create_order` | `ORDER_CREATED` | 幂等键抢占成功且未过期 | `IDEMPOTENCY_KEY_REUSED` (409) |
+| `CONFIRMED` | `create_order` | `EXPIRED` | 超 `expires_at` | `QUOTE_EXPIRED` (409) |
+| 任意 | `create_order` | — | 状态不属于 `{CONFIRMED, ORDER_CREATED}` | `QUOTE_NOT_CONFIRMED` (409) |
+
+> 报价过期在确认与下单两条路径都会校验（`TEST.md` 早期版本仅记录确认路径，下单路径漏检已修复）。
 
 ### 4.3 订单状态机（实际实现）
 
-`ORDER_TRANSITIONS`（`app/services/commerce_service.py:15-20`）：
+`ORDER_TRANSITIONS`（`app/services/commerce_service.py`）：
 
 ```python
 ORDER_TRANSITIONS = {
-    "CREATING":   {"CREATED", "FAILED", "CANCELLED"},
-    "CREATED":    {"PROCESSING", "CANCELLED"},
+    "DRAFT": {"PENDING_CONFIRMATION", "EXPIRED"},
+    "PENDING_CONFIRMATION": {"CONFIRMED", "EXPIRED", "DRAFT"},
+    "CONFIRMED": {"CREATING", "CANCELLED"},
+    "CREATING": {"CREATED", "FAILED", "CANCELLED"},
+    "CREATED": {"PROCESSING", "CANCELLED"},
     "PROCESSING": {"COMPLETED", "FAILED", "CANCELLED"},
-    "FAILED":     {"CREATING", "CANCELLED"},
+    "FAILED": {"CREATING", "CANCELLED"},
+    "COMPLETED": set(),
+    "CANCELLED": set(),
+    "EXPIRED": set(),
 }
 ```
 
 > **实现观察**：`create_order` 在同一事务内完成 `CREATING → CREATED`，并向 `order_events` 写入两条事件（`None→CREATING`、`CREATING→CREATED`）。
+> 终态（`COMPLETED`/`CANCELLED`/`EXPIRED`）必须显式声明为空集：若从字典中省略，`ORDER_TRANSITIONS.get(status, set())` 会静默回退为空集，使 `COMPLETED` 既不可达也无法迁出。
 > `transition_order` 对外暴露但**尚无 API 路由挂载**，属于未接线能力（见 8.3）。
 
 ---
@@ -136,7 +147,34 @@ ORDER_TRANSITIONS = {
 | T-API-06 | `test_idempotency_key_cannot_be_reused_for_another_quote` | 同一幂等键跨不同报价复用 → 409 `IDEMPOTENCY_KEY_REUSED` | ✅ PASSED |
 | T-API-07 | `test_quote_and_order_require_matching_access_token` | 缺 token → 422；错 token → 404（不泄露存在性）；正确 token → 200/201 | ✅ PASSED |
 
-### 5.2 前端测试（`tests/test_frontend.py`）
+### 5.2 契约测试（`tests/test_contract.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-CT-01 | `test_error_envelope_shape` | 错误体为 `{data:null, error:{code,message,retryable}, trace_id}` | ✅ PASSED |
+| T-CT-02 | `test_validation_error_uses_envelope` | 422 走统一封套并给出 `error.fields` | ✅ PASSED |
+| T-CT-03 | `test_documented_error_codes_have_messages` | 常见错误码均有中文文案 | ✅ PASSED |
+| T-CT-04 | `test_trace_id_returned_and_echoed` | 响应头回传，且合法上游 trace_id 被沿用 | ✅ PASSED |
+| T-CT-05 | `test_trace_id_rejects_injected_value` | 非法 trace_id 不被透传（防日志注入） | ✅ PASSED |
+| T-CT-06 | `test_trace_id_present_on_error` | 错误响应 body 与响应头 trace_id 一致 | ✅ PASSED |
+| T-CT-07 | `test_product_write_requires_admin_token` | 缺令牌 → 403 `ADMIN_AUTH_REQUIRED` | ✅ PASSED |
+| T-CT-08 | `test_product_write_rejects_wrong_admin_token` | 错令牌 → 401 `ADMIN_AUTH_INVALID` | ✅ PASSED |
+| T-CT-09 | `test_product_write_succeeds_with_admin_token` | 正确令牌可写入 | ✅ PASSED |
+| T-CT-10 | `test_quote_token_returned_once_and_not_on_read` | 创建返回令牌；读取/确认 `access_token: null` | ✅ PASSED |
+| T-CT-11 | `test_all_routes_have_error_handlers_registered` | 异常处理器已挂载，封套不会退化 | ✅ PASSED |
+
+### 5.3 订单完整性回归（`tests/test_order_integrity.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-OI-01 | `test_expired_confirmed_quote_cannot_create_order` | 过期报价下单 → 409 `QUOTE_EXPIRED`，报价落 `EXPIRED`，且**不产生订单** | ✅ PASSED |
+| T-OI-02 | `test_concurrent_same_key_creates_single_order` | 同键 6 并发 → 全部 201 且**仅 1 个订单**（文件型 SQLite + 连接池） | ✅ PASSED |
+| T-OI-03 | `test_sequential_replay_returns_same_order` | 顺序重放返回同一订单 | ✅ PASSED |
+| T-OI-04 | `test_order_state_machine_matches_arch` | `PROCESSING → COMPLETED` 可达，终态守卫返回 `ORDER_INVALID_TRANSITION` | ✅ PASSED |
+| T-OI-05 | `test_order_transitions_declare_terminal_states` | 三个终态显式声明为空集 | ✅ PASSED |
+| T-OI-06 | `test_quote_total_matches_server_price` | 多商品金额由服务端计算 | ✅ PASSED |
+
+### 5.4 前端测试（`tests/test_frontend.py`）
 
 | ID | 用例 | 验证点 | 状态 |
 |---|---|---|---|
@@ -145,14 +183,17 @@ ORDER_TRANSITIONS = {
 
 **XSS 防护断言**：`app.js` 与 `sales.js` 中**断言不出现 `innerHTML`**（`assert "innerHTML" not in script.text`），强制前端使用安全 DOM 写入 API。这是低成本、高价值的防御性回归断言。
 
-### 5.3 安全与幂等要点（已覆盖）
+### 5.5 安全与幂等要点（已覆盖）
 
 | 机制 | 实现位置 | 测试用例 |
 |---|---|---|
-| 报价访问令牌 | `Quote.access_token`（64 位 hex），`hmac.compare_digest` 常量时间比较 | T-API-07 |
+| 报价访问令牌 | `Quote.access_token`（64 位 hex），`hmac.compare_digest` 常量时间比较 | T-API-07, T-CT-10 |
+| 令牌回显收敛 | 仅创建报价时返回一次，读取/确认不回显 | T-CT-10 |
 | 存在性隐藏 | 令牌错误统一返回 404 而非 403 | T-API-07 |
 | 乐观锁 | `Quote.version` + `confirm?version=N` | T-API-03/04 |
-| 幂等键 | `IdempotencyRecord`，`UniqueConstraint(operation, idempotency_key)` + `request_hash` 比对 | T-API-03, T-API-06 |
+| 幂等键 | `IdempotencyRecord`，`UniqueConstraint(operation, idempotency_key)` + `request_hash` 比对 + **独立事务抢占** | T-API-03, T-API-06, T-OI-02/03 |
+| 后台写鉴权 | `X-Admin-Token` + `hmac.compare_digest`，缺省拒绝 | T-CT-07/08/09 |
+| 统一错误封套 | `app/core/errors.py` 注入 `code/message/retryable/trace_id` | T-CT-01~06 |
 | 金额防篡改 | `QuoteCreateRequest` 设 `extra="forbid"`，客户端无法注入 `tax_rate`/价格 | T-API-05 |
 | 服务端定价 | 单价一律取自 `Product.base_price` | T-API-04 |
 | 币种一致性 | 校验所有产品 `currency` 唯一 | T-API-05 |
@@ -179,22 +220,24 @@ python -m pytest -v
 python -m ruff check .
 ```
 
-### 6.4 环境开关说明
+### 6.4 写接口鉴权
 
-`POST /api/v1/products` 的鉴权行为**依赖 `DEBUG` 环境变量**（`app/api/v1/products.py:33-34`）：
+`POST /api/v1/products` 需运营后台令牌 `X-Admin-Token`（`app/core/security.py`）：
 
-| `DEBUG` | 行为 |
-|---|---|
-| `true` | 允许直接创建产品（测试、本地演示） |
-| `false` | 返回 403 `ADMIN_AUTH_REQUIRED` |
+| `ADMIN_API_TOKEN` | 请求头 | 行为 |
+|---|---|---|
+| 未配置 | 任意 | 403 `ADMIN_AUTH_REQUIRED`（默认拒绝） |
+| 已配置 | 缺失或不匹配 | 401 `ADMIN_AUTH_INVALID` |
+| 已配置 | 匹配 | 允许创建产品 |
 
-> 这是当前**最需要关注的安全边界**：生产部署必须确保 `DEBUG=false`，否则产品写入接口对公网开放。建议纳入部署检查清单（见 8.4）。
+> 已不再依赖 `DEBUG` 开关：此前 `DEBUG=true` 即对公网开放写接口，属最高风险安全边界。现改为缺省拒绝，令牌以 `hmac.compare_digest` 常量时间比较。正式 RBAC/OIDC 见 ARCH.md §7。
+> 报价访问令牌仅在创建报价时返回一次，`GET`/确认响应回显 `access_token: null`；`EXPOSE_QUOTE_TOKEN=true` 可临时恢复回显，仅供本地调试。
 
 ---
 
 ## 7. 当前执行基线
 
-**执行时间**：2026-09-30 ｜ **执行环境**：Windows / Python 3.12.9 / pytest 8.4.2
+**执行环境**：Windows / Python 3.12.9 / pytest 8.4.2
 
 ```
 platform win32 -- Python 3.12.9, pytest-8.4.2, pluggy-1.6.0
@@ -203,23 +246,18 @@ configfile: pyproject.toml
 plugins: anyio-4.15.1, asyncio-0.26.0
 asyncio: mode=Mode.AUTO
 
-tests/test_api.py::test_health                                    PASSED  [ 11%]
-tests/test_api.py::test_product_search_and_assistant              PASSED  [ 22%]
-tests/test_api.py::test_quote_confirm_and_idempotent_order        PASSED  [ 33%]
-tests/test_api.py::test_quote_with_multiple_products_uses_server_prices  PASSED  [ 44%]
-tests/test_api.py::test_quote_rejects_client_tax_and_mixed_currency      PASSED  [ 55%]
-tests/test_api.py::test_idempotency_key_cannot_be_reused_for_another_quote PASSED [ 66%]
-tests/test_api.py::test_quote_and_order_require_matching_access_token    PASSED  [ 77%]
-tests/test_frontend.py::test_frontend_home_and_static_assets      PASSED  [ 88%]
-tests/test_frontend.py::test_frontend_source_files_exist          PASSED  [100%]
+tests/test_api.py              7 passed   # 产品/报价/订单主路径
+tests/test_contract.py        11 passed   # 错误封套、trace_id、后台鉴权、令牌回显
+tests/test_frontend.py         2 passed
+tests/test_order_integrity.py  6 passed   # 过期下单、幂等并发、状态机
 
-============================== 9 passed in 0.50s ==============================
+============================= 26 passed in 1.35s ==============================
 ```
 
 | 指标 | 结果 |
 |---|---|
-| 用例总数 | 9 |
-| 通过 | 9 |
+| 用例总数 | 26 |
+| 通过 | 26 |
 | 失败 | 0 |
 | 跳过 | 0 |
 | 耗时 | 0.50s |
@@ -237,10 +275,10 @@ tests/test_frontend.py::test_frontend_source_files_exist          PASSED  [100%]
 
 | ID | 缺口 | 风险 | 建议 | 期限 |
 |---|---|---|---|---|
-| G-01 | **订单状态机 API 未接线**：`transition_order` 无路由，`PROCESSING`/`COMPLETED`/`FAILED` 分支**零测试覆盖** | 状态机是需求核心，非法迁移防护未验证 | 暴露 `POST /orders/{id}/transition` 并补状态迁移矩阵测试 | P0 |
-| G-02 | **报价过期分支未测试**：`QUOTE_EXPIRED` 逻辑存在但无用例 | 过期报价可能被下单 | 用可控时钟或直接改写 `expires_at` 造数据 | P0 |
+| G-01 | **订单状态机 API 未接线**：`transition_order` 无路由，`PROCESSING`/`COMPLETED`/`FAILED` 分支**无 API 级覆盖** | 状态机是需求核心，非法迁移防护未对外暴露 | 暴露 `POST /orders/{id}/transition` 并补 API 级状态迁移矩阵测试 | P0 |
+| ~~G-02~~ | ~~报价过期分支未测试~~ **已修复**：`test_expired_confirmed_quote_cannot_create_order` 覆盖过期下单（并发现下单路径原先漏检） | — | 已完成 | ✅ |
 | G-03 | **`QUOTE_VERSION_CONFLICT` 未测试**：传错 `version` 的并发冲突路径 | 乐观锁形同虚设 | 补 `version` 不匹配用例 | P0 |
-| G-04 | **`DEBUG=false` 鉴权路径未测试**：403 `ADMIN_AUTH_REQUIRED` 无覆盖 | 生产误开放写接口 | 补依赖覆盖用例 | P0 |
+| ~~G-04~~ | ~~`DEBUG=false` 鉴权路径未测试~~ **已修复**：写接口改为 `X-Admin-Token`，`test_product_write_*` 覆盖缺令牌/错令牌/正确令牌三种路径 | — | 已完成 | ✅ |
 
 ### 8.2 中优先级缺口
 
@@ -248,16 +286,17 @@ tests/test_frontend.py::test_frontend_source_files_exist          PASSED  [100%]
 |---|---|---|
 | G-05 | 测试库为 SQLite，与生产 MySQL 存在方言差异（`Numeric` 精度、`with_for_update` 行锁、并发语义） | 幂等与锁行为在生产可能不一致 |
 | G-06 | 无独立单元测试层，`ProductService.search_for_assistant` 的中文分词（2-gram）逻辑仅被间接覆盖 | 分词边界（单字、超长词、混合中英）无验证 |
-| G-07 | 无并发测试，`idempotency_records` 唯一约束的**竞态行为**未验证 | 高并发下可能出现重复订单或 500 |
-| G-08 | 无 `transition_order` 的 `ORDER_INVALID_TRANSITION` 用例 | 非法状态跳转未防护验证 |
+| ~~G-07~~ | ~~无并发测试~~ **已修复**：`test_concurrent_same_key_creates_single_order` 用文件型 SQLite + 连接池验证同键并发只产生一个订单 | — | ✅ |
+| ~~G-08~~ | ~~无 `ORDER_INVALID_TRANSITION` 用例~~ **已修复**：`test_order_state_machine_matches_arch` 覆盖 `COMPLETED` 可达性与终态守卫 | — | ✅ |
 
 ### 8.3 低优先级缺口
 
 | ID | 缺口 |
 |---|---|
 | G-09 | `OrderEvent.actor` 字段有默认值 `"system"`，但无审计用例验证操作者记录 |
-| G-10 | `alembic/versions/7b23c4e8a901_quote_access_token.py` 为**新增迁移**，无迁移升降级测试 |
-| G-11 | `scripts/seed_products.py` 无测试 |
+| G-10 | `alembic/versions/7b23c4e8a901_quote_access_token.py` 为**新增迁移**，无迁移升降级测试（CI 已校验 `upgrade head` 可用） |
+| G-11 | `scripts/seed_products.py` 无单测（CI 已校验脚本可执行） |
+| G-12 | 统一错误封套与 `trace_id` 已实现，但未验证 `trace_id` 在跨服务/日志侧的贯通 |
 | G-12 | 无评测测试：LLM 意图识别、多轮追问、提示注入防护（当前为 `MockAgentProvider`，见 9.1） |
 
 ### 8.4 静态检查缺口

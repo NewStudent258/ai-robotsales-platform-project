@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.commerce import Order
 from app.schemas.commerce import OrderRead, QuoteCreateRequest, QuoteItemRead, QuoteRead
@@ -9,12 +10,15 @@ from app.services.commerce_service import CommerceService
 router = APIRouter(tags=["commerce"])
 
 
-def _quote_read(quote_tuple) -> QuoteRead:
+def _quote_read(quote_tuple, *, include_token: bool) -> QuoteRead:
     quote, items = quote_tuple
+    # 访问令牌是读取/确认该报价的凭证，默认只在创建时返回一次，
+    # 避免它随每次读取回流到响应体、日志或浏览器缓存。
+    token = quote.access_token if (include_token or get_settings().expose_quote_token) else None
     return QuoteRead(
         id=quote.id,
         quote_number=quote.quote_number,
-        access_token=quote.access_token,
+        access_token=token,
         customer_name=quote.customer_name,
         customer_email=quote.customer_email,
         currency=quote.currency,
@@ -37,18 +41,21 @@ def _quote_read(quote_tuple) -> QuoteRead:
     )
 
 
-async def _load_quote(service: CommerceService, quote_id: int) -> QuoteRead:
+async def _load_quote(service: CommerceService, quote_id: int, *, include_token: bool) -> QuoteRead:
     result = await service.get_quote(quote_id)
     if result is None:
         raise HTTPException(status_code=404, detail={"code": "QUOTE_NOT_FOUND"})
-    return _quote_read(result)
+    return _quote_read(result, include_token=include_token)
 
 
 @router.post("/quotes", response_model=QuoteRead, status_code=201)
-async def create_quote(payload: QuoteCreateRequest, db: AsyncSession = Depends(get_db)) -> QuoteRead:
+async def create_quote(
+    payload: QuoteCreateRequest, db: AsyncSession = Depends(get_db)
+) -> QuoteRead:
     service = CommerceService(db)
     quote = await service.create_quote(payload)
-    return await _load_quote(service, quote.id)
+    # 创建响应是客户获得访问令牌的唯一时机。
+    return await _load_quote(service, quote.id, include_token=True)
 
 
 @router.get("/quotes/{quote_id}", response_model=QuoteRead)
@@ -59,7 +66,8 @@ async def get_quote(
 ) -> QuoteRead:
     service = CommerceService(db)
     await service.require_quote_access(quote_id, access_token)
-    return await _load_quote(service, quote_id)
+    # 调用方已持有该令牌，读取响应无需回显。
+    return await _load_quote(service, quote_id, include_token=False)
 
 
 @router.post("/quotes/{quote_id}/confirm", response_model=QuoteRead)
@@ -72,7 +80,7 @@ async def confirm_quote(
     service = CommerceService(db)
     await service.require_quote_access(quote_id, access_token)
     await service.confirm_quote(quote_id, version)
-    return await _load_quote(service, quote_id)
+    return await _load_quote(service, quote_id, include_token=False)
 
 
 @router.post("/orders", response_model=OrderRead, status_code=201)

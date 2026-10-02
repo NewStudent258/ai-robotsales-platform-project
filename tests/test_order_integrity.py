@@ -17,10 +17,13 @@ from app.main import app
 from app.models.commerce import Order, Quote
 from app.services.commerce_service import ORDER_TRANSITIONS, CommerceService
 
+ADMIN = {"X-Admin-Token": "test-admin-token"}
+
 
 async def _seed_product(client) -> dict:
     response = await client.post(
         "/api/v1/products",
+        headers=ADMIN,
         json={
             "sku": "INTEG-001",
             "slug": "integrity-robot",
@@ -73,7 +76,7 @@ async def test_expired_confirmed_quote_cannot_create_order(client, session_facto
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "QUOTE_EXPIRED"
+    assert response.json()["error"]["code"] == "QUOTE_EXPIRED"
 
     latest = await client.get(f"/api/v1/quotes/{quote['id']}", headers=headers)
     assert latest.json()["status"] == "EXPIRED"
@@ -91,9 +94,7 @@ async def test_concurrent_same_key_creates_single_order(client_factory):
     """
     from sqlalchemy import func, select
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         product = await _seed_product(client)
         quote, headers = await _confirmed_quote(client, product["id"])
         request_headers = {**headers, "Idempotency-Key": "concurrent-key-001"}
@@ -174,6 +175,7 @@ async def test_quote_total_matches_server_price(client):
     product = await _seed_product(client)
     second = await client.post(
         "/api/v1/products",
+        headers=ADMIN,
         json={
             "sku": "INTEG-002",
             "slug": "integrity-robot-two",

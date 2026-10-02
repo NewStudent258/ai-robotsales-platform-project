@@ -35,7 +35,11 @@ async function request(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     let code;
-    try { code = (await response.json()).detail?.code; } catch { /* Keep generic error. */ }
+    try {
+      const body = await response.json();
+      // 统一错误封套 {error:{code}}；兼容旧的 {detail:{code}}。
+      code = body.error?.code || body.detail?.code;
+    } catch { /* Keep generic error. */ }
     throw new Error(errorMessages[code] || `请求失败（${response.status}），请稍后重试。`);
   }
   return response.json();

@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import assistant, commerce, products
 from app.core.config import get_settings
+from app.core.errors import install_error_handlers
 from app.db.base import Base
 from app.db.session import engine
 
@@ -33,6 +34,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 错误封套与 trace_id 中间件在 CORS 之后注册，确保它包住所有路由与异常。
+install_error_handlers(app)
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(assistant.router, prefix="/api/v1")
 app.include_router(commerce.router, prefix="/api/v1")

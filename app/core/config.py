@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     llm_provider: str = "mock"
     llm_model: str | None = None
     redis_url: str = "redis://127.0.0.1:6379/0"
+    # 运营后台写权限令牌。为空时写接口一律拒绝（默认拒绝）。
+    admin_api_token: str | None = None
+    # 是否在 API 响应中回显报价访问令牌。默认关闭，仅在开发/测试中按需开启。
+    expose_quote_token: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

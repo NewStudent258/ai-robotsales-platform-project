@@ -62,7 +62,9 @@ class CommerceService:
         item_rows: list[QuoteItem] = []
         for item in payload.items:
             product = by_id[item.product_id]
-            line_total = (product.base_price * item.quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            line_total = (product.base_price * item.quantity).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
             subtotal += line_total
             item_rows.append(
                 QuoteItem(
@@ -100,7 +102,9 @@ class CommerceService:
         quote = await self.session.get(Quote, quote_id)
         if quote is None:
             return None
-        items = list(await self.session.scalars(select(QuoteItem).where(QuoteItem.quote_id == quote_id)))
+        items = list(
+            await self.session.scalars(select(QuoteItem).where(QuoteItem.quote_id == quote_id))
+        )
         return quote, items
 
     async def require_quote_access(self, quote_id: int, access_token: str) -> Quote:
@@ -221,7 +225,9 @@ class CommerceService:
         await self.session.refresh(order)
         return order
 
-    async def transition_order(self, order_id: int, to_status: str, reason: str | None = None) -> Order:
+    async def transition_order(
+        self, order_id: int, to_status: str, reason: str | None = None
+    ) -> Order:
         order = await self.session.get(Order, order_id, with_for_update=True)
         if order is None:
             raise HTTPException(status_code=404, detail={"code": "ORDER_NOT_FOUND"})
@@ -229,7 +235,9 @@ class CommerceService:
             raise HTTPException(status_code=409, detail={"code": "ORDER_INVALID_TRANSITION"})
         previous = order.status
         order.status = to_status
-        self.session.add(OrderEvent(order_id=order.id, from_status=previous, to_status=to_status, reason=reason))
+        self.session.add(
+            OrderEvent(order_id=order.id, from_status=previous, to_status=to_status, reason=reason)
+        )
         await self.session.commit()
         await self.session.refresh(order)
         return order
