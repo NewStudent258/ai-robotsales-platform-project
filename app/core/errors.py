@@ -40,6 +40,7 @@ DEFAULT_MESSAGES = {
     "IDEMPOTENCY_IN_PROGRESS": "相同请求正在处理中，请稍后重试。",
     "ORDER_NOT_FOUND": "订单不存在。",
     "ORDER_INVALID_TRANSITION": "订单状态迁移不合法。",
+    "ORDER_STATUS_CONFLICT": "订单状态已变更，请重新获取后再操作。",
     "ADMIN_AUTH_REQUIRED": "需要运营后台凭证。",
     "ADMIN_AUTH_INVALID": "运营后台凭证无效。",
     "VALIDATION_ERROR": "请求参数不合法。",

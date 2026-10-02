@@ -226,17 +226,35 @@ class CommerceService:
         return order
 
     async def transition_order(
-        self, order_id: int, to_status: str, reason: str | None = None
+        self,
+        order_id: int,
+        to_status: str,
+        reason: str | None = None,
+        actor: str = "system",
+        expected_status: str | None = None,
     ) -> Order:
+        """按状态机迁移订单状态。
+
+        `expected_status` 提供乐观并发保护：调用方回传其读到的状态，
+        与库中不一致时拒绝，避免基于过期读到的状态做出错误迁移。
+        """
         order = await self.session.get(Order, order_id, with_for_update=True)
         if order is None:
             raise HTTPException(status_code=404, detail={"code": "ORDER_NOT_FOUND"})
+        if expected_status is not None and order.status != expected_status:
+            raise HTTPException(status_code=409, detail={"code": "ORDER_STATUS_CONFLICT"})
         if to_status not in ORDER_TRANSITIONS.get(order.status, set()):
             raise HTTPException(status_code=409, detail={"code": "ORDER_INVALID_TRANSITION"})
         previous = order.status
         order.status = to_status
         self.session.add(
-            OrderEvent(order_id=order.id, from_status=previous, to_status=to_status, reason=reason)
+            OrderEvent(
+                order_id=order.id,
+                from_status=previous,
+                to_status=to_status,
+                reason=reason,
+                actor=actor,
+            )
         )
         await self.session.commit()
         await self.session.refresh(order)

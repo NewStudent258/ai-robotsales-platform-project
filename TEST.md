@@ -129,7 +129,7 @@ ORDER_TRANSITIONS = {
 
 > **实现观察**：`create_order` 在同一事务内完成 `CREATING → CREATED`，并向 `order_events` 写入两条事件（`None→CREATING`、`CREATING→CREATED`）。
 > 终态（`COMPLETED`/`CANCELLED`/`EXPIRED`）必须显式声明为空集：若从字典中省略，`ORDER_TRANSITIONS.get(status, set())` 会静默回退为空集，使 `COMPLETED` 既不可达也无法迁出。
-> `transition_order` 对外暴露但**尚无 API 路由挂载**，属于未接线能力（见 8.3）。
+> `transition_order` 已通过 `POST /orders/{id}/transition` 接线（需 `X-Admin-Token`），支持 `reason` 与 `expected_status`，并在响应中返回 `allowed_transitions`。取消订单即 `to_status=CANCELLED`。
 
 ---
 
@@ -174,7 +174,30 @@ ORDER_TRANSITIONS = {
 | T-OI-05 | `test_order_transitions_declare_terminal_states` | 三个终态显式声明为空集 | ✅ PASSED |
 | T-OI-06 | `test_quote_total_matches_server_price` | 多商品金额由服务端计算 | ✅ PASSED |
 
-### 5.4 前端测试（`tests/test_frontend.py`）
+### 5.4 订单状态机与报价乐观锁（`tests/test_order_state_machine.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-SM-01 | `test_transition_requires_admin_token` | 迁移需 `X-Admin-Token`，缺令牌拒绝 | ✅ PASSED |
+| T-SM-02 | `test_transition_route_exists` | 路由已挂载（G-01 核心） | ✅ PASSED |
+| T-SM-03 | `test_transition_unknown_order_returns_404` | 未知订单 404 `ORDER_NOT_FOUND` | ✅ PASSED |
+| T-SM-04 | `test_create_order_exposes_allowed_transitions` | 响应给出 `allowed_transitions` | ✅ PASSED |
+| T-SM-05 | `test_full_happy_path_to_completed` | `CREATED→PROCESSING→COMPLETED`，终态 `allowed_transitions` 为空 | ✅ PASSED |
+| T-SM-06 | `test_cancel_from_created` | `CREATED→CANCELLED` 合法 | ✅ PASSED |
+| T-SM-07 | `test_failed_then_retry_cycle` | `PROCESSING→FAILED→CREATING` 重试路径合法 | ✅ PASSED |
+| T-SM-08 | `test_invalid_transitions_rejected`（8 组参数化） | 越级、回退、终态迁出等一律 409 `ORDER_INVALID_TRANSITION` | ✅ PASSED |
+| T-SM-09 | `test_unknown_target_status_rejected` | 未知目标状态按非法迁移处理 | ✅ PASSED |
+| T-SM-10 | `test_transition_rejects_extra_fields` | 未声明字段 → 422 `VALIDATION_ERROR` | ✅ PASSED |
+| T-SM-11 | `test_expected_status_conflict` | 并发保护：`expected_status` 不符 → 409 `ORDER_STATUS_CONFLICT` | ✅ PASSED |
+| T-SM-12 | `test_transition_writes_audit_event` | 事件记录前后状态、原因、操作者 `admin` | ✅ PASSED |
+| T-SM-13 | `test_service_transition_rejects_invalid_without_api` | 服务层同样受状态机约束，无法绕过 API | ✅ PASSED |
+| T-VC-01 | `test_confirm_with_wrong_version_conflicts` | **G-03**：`version=99` → 409 `QUOTE_VERSION_CONFLICT`，报价保持未确认 | ✅ PASSED |
+| T-VC-02 | `test_confirm_twice_conflicts` | 重复确认 → 409，不重复生效 | ✅ PASSED |
+| T-VC-03 | `test_confirm_requires_matching_access_token` | 版本正确但令牌错误 → 404（不泄露存在性） | ✅ PASSED |
+| T-VC-04 | `test_confirm_version_must_be_integer` | `version=abc` → 422 | ✅ PASSED |
+| T-VC-05 | `test_confirm_expired_wins_over_version` | 过期优先于版本校验 → 409 `QUOTE_EXPIRED` | ✅ PASSED |
+
+### 5.5 前端测试（`tests/test_frontend.py`）
 
 | ID | 用例 | 验证点 | 状态 |
 |---|---|---|---|
@@ -183,7 +206,7 @@ ORDER_TRANSITIONS = {
 
 **XSS 防护断言**：`app.js` 与 `sales.js` 中**断言不出现 `innerHTML`**（`assert "innerHTML" not in script.text`），强制前端使用安全 DOM 写入 API。这是低成本、高价值的防御性回归断言。
 
-### 5.5 安全与幂等要点（已覆盖）
+### 5.6 安全与幂等要点（已覆盖）
 
 | 机制 | 实现位置 | 测试用例 |
 |---|---|---|
@@ -230,6 +253,8 @@ python -m ruff check .
 | 已配置 | 缺失或不匹配 | 401 `ADMIN_AUTH_INVALID` |
 | 已配置 | 匹配 | 允许创建产品 |
 
+同一令牌也用于 `POST /api/v1/orders/{order_id}/transition`（订单状态迁移属高风险写操作）。
+
 > 已不再依赖 `DEBUG` 开关：此前 `DEBUG=true` 即对公网开放写接口，属最高风险安全边界。现改为缺省拒绝，令牌以 `hmac.compare_digest` 常量时间比较。正式 RBAC/OIDC 见 ARCH.md §7。
 > 报价访问令牌仅在创建报价时返回一次，`GET`/确认响应回显 `access_token: null`；`EXPOSE_QUOTE_TOKEN=true` 可临时恢复回显，仅供本地调试。
 
@@ -246,18 +271,19 @@ configfile: pyproject.toml
 plugins: anyio-4.15.1, asyncio-0.26.0
 asyncio: mode=Mode.AUTO
 
-tests/test_api.py              7 passed   # 产品/报价/订单主路径
-tests/test_contract.py        11 passed   # 错误封套、trace_id、后台鉴权、令牌回显
-tests/test_frontend.py         2 passed
-tests/test_order_integrity.py  6 passed   # 过期下单、幂等并发、状态机
+tests/test_api.py                    7 passed   # 产品/报价/订单主路径
+tests/test_contract.py              11 passed   # 错误封套、trace_id、后台鉴权、令牌回显
+tests/test_frontend.py               2 passed
+tests/test_order_integrity.py        6 passed   # 过期下单、幂等并发、状态机
+tests/test_order_state_machine.py   25 passed   # G-01 迁移矩阵、G-03 乐观锁
 
-============================= 26 passed in 1.35s ==============================
+============================= 51 passed in 3.04s ==============================
 ```
 
 | 指标 | 结果 |
 |---|---|
-| 用例总数 | 26 |
-| 通过 | 26 |
+| 用例总数 | 51 |
+| 通过 | 51 |
 | 失败 | 0 |
 | 跳过 | 0 |
 | 耗时 | 0.50s |
@@ -275,10 +301,12 @@ tests/test_order_integrity.py  6 passed   # 过期下单、幂等并发、状态
 
 | ID | 缺口 | 风险 | 建议 | 期限 |
 |---|---|---|---|---|
-| G-01 | **订单状态机 API 未接线**：`transition_order` 无路由，`PROCESSING`/`COMPLETED`/`FAILED` 分支**无 API 级覆盖** | 状态机是需求核心，非法迁移防护未对外暴露 | 暴露 `POST /orders/{id}/transition` 并补 API 级状态迁移矩阵测试 | P0 |
+| ~~G-01~~ | ~~订单状态机 API 未接线~~ **已修复**：新增 `POST /orders/{id}/transition`（需后台令牌），`test_order_state_machine.py` 覆盖合法/非法迁移矩阵、并发保护与审计事件 | — | 已完成 | ✅ |
 | ~~G-02~~ | ~~报价过期分支未测试~~ **已修复**：`test_expired_confirmed_quote_cannot_create_order` 覆盖过期下单（并发现下单路径原先漏检） | — | 已完成 | ✅ |
-| G-03 | **`QUOTE_VERSION_CONFLICT` 未测试**：传错 `version` 的并发冲突路径 | 乐观锁形同虚设 | 补 `version` 不匹配用例 | P0 |
+| ~~G-03~~ | ~~`QUOTE_VERSION_CONFLICT` 未测试~~ **已修复**：`test_confirm_with_wrong_version_conflicts` 等 5 例覆盖版本不匹配、重复确认、令牌不匹配、非法类型、过期优先 | — | 已完成 | ✅ |
 | ~~G-04~~ | ~~`DEBUG=false` 鉴权路径未测试~~ **已修复**：写接口改为 `X-Admin-Token`，`test_product_write_*` 覆盖缺令牌/错令牌/正确令牌三种路径 | — | 已完成 | ✅ |
+
+> **P0 缺口已全部关闭**（G-01 ~ G-04）。
 
 ### 8.2 中优先级缺口
 

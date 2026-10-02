@@ -50,3 +50,17 @@ class OrderRead(BaseModel):
     customer_email: str
     total: Decimal
     status: str
+    # 当前状态下允许迁移到的目标，便于运营端与测试发现合法动作。
+    allowed_transitions: list[str] = Field(default_factory=list)
+
+
+class OrderTransitionRequest(BaseModel):
+    """订单状态迁移请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 目标状态取值校验交给状态机，以返回语义明确的 ORDER_INVALID_TRANSITION。
+    to_status: str = Field(min_length=1, max_length=32)
+    reason: str | None = Field(default=None, max_length=500)
+    # 可选并发保护：调用方回传其读到的状态，不一致即拒绝。
+    expected_status: str | None = Field(default=None, max_length=32)

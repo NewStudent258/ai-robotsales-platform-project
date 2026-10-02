@@ -107,10 +107,12 @@ Agent 与价格/订单服务通过版本化 API 隔离。Agent 不得接受“�
 
 - `POST /conversations`、`POST /requirements/validate`、`GET /products/recommendations`；
 - `POST /quotes/preview`、`POST /quotes`、`POST /quotes/{id}/confirm`、`GET /quotes/{id}`；
-- `POST /orders`、`GET /orders/{id}`、`POST /orders/{id}/cancel`；
+- `POST /orders`、`GET /orders/{id}`、`POST /orders/{id}/transition`；
 - `GET/POST /admin/assets/{type}`、`POST /admin/assets/{type}/{id}/publish`、`GET /admin/audit-events`。
 
 写 API 必须鉴权、校验租户和版本、支持幂等键，并返回资源版本与 trace_id。API Schema、错误码、分页、排序和兼容策略纳入契约测试；破坏性变更升级主版本。
+
+**状态迁移端点的实现说明**：文档原列的 `POST /orders/{id}/cancel` 被实现为更通用的 `POST /orders/{id}/transition`，由状态机裁决目标状态是否合法，取消即 `to_status=CANCELLED`。这样避免为每个目标状态各开一个端点——否则 `PROCESSING`、`COMPLETED`、`FAILED` 等迁移都会缺路由，正是此前状态机未接线的原因。该端点属高风险写操作，需 `X-Admin-Token`；请求体支持 `to_status`、可选 `reason` 与可选 `expected_status`（乐观并发保护，与库中状态不符时返回 `ORDER_STATUS_CONFLICT`）。响应中的 `allowed_transitions` 给出当前状态的合法目标，便于运营端与测试发现可用动作。每次迁移写入 `order_events`，记录前后状态、原因与操作者。
 
 ## 7. 安全
 

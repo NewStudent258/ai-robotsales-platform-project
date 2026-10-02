@@ -47,4 +47,6 @@ pytest
 
 所有错误响应统一为 `{data, error: {code, message, retryable, handoff_required}, trace_id}`，并在 `X-Trace-Id` 响应头回传追踪标识，便于按 trace 排查问题。
 
+订单状态迁移通过 `POST /api/v1/orders/{order_id}/transition` 提交，请求体为 `{to_status, reason?, expected_status?}`，同样需要 `X-Admin-Token`。合法迁移由服务端状态机裁决（`COMPLETED`、`CANCELLED`、`EXPIRED` 为终态），非法迁移返回 409 `ORDER_INVALID_TRANSITION`；`expected_status` 用于乐观并发保护，与库中状态不符时返回 409 `ORDER_STATUS_CONFLICT`。响应中的 `allowed_transitions` 列出当前状态的合法目标。
+
 销售页的报价单保存在当前浏览器的 `localStorage`，只用于暂存选品；联系人和报价访问令牌不写入本地存储。页面上的小计为估算展示，正式金额以 `/api/v1/quotes` 返回结果为准。产品造型图为本地 CSS 示意图，并非真实商品实物。
