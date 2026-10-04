@@ -10,6 +10,11 @@
 - 当前客户路径：产品目录→选择产品和数量→服务端报价→客户确认→幂等创建订单；前端直接使用同源 `/api/v1` 接口。
 - `/sales` 由 FastAPI 提供独立销售页；商品清单从 `GET /api/v1/products` 获取，浏览器端搜索/筛选/排序及报价单仅是展示与选品状态。报价单只在浏览器 `localStorage` 保存商品 ID 和数量；联系人与访问令牌不持久化。浏览器端预估小计不是报价事实，多商品正式金额由 `POST /api/v1/quotes` 决定。
 - 当前价格策略为 `base-price-v1`：产品基础价乘数量，税额为 0；客户端税率字段被拒绝，不同币种不能合并报价。税费、折扣和交付费用规则尚未实现。
+- **Agent 编排已接入（P0）**：`app/services/assistant_service.py` 为 Provider 中立的编排器，负责多轮上下文、工具循环、步数/工具预算、审计与转人工；`app/agents/provider.py` 定义 `AgentProvider` 协议、`ToolRegistry` 白名单与 `AgentTurn` 决策结构。当前默认实现为 `MockAgentProvider`（`app/agents/mock_provider.py`），是**确定性实现**，真实 LLM 适配器只需实现同一协议，业务链路无需改动。
+- **会话与需求已持久化**：`conversations` 表保存 `session_id`、结构化需求快照、需求版本与转人工标记；`conversation_messages` 保存 user/assistant 消息、意图、置信度与工具轨迹。`session_id` 由服务端生成并在后续轮次复用，不再是一次性返回值。
+- **工具白名单**：`search_products`（只读）、`create_quote`（写本地，复用 `CommerceService`，金额服务端复算）、`prepare_order`（`write_commit`，**只准备动作、不创建订单**）。未注册工具名一律返回 `TOOL_NOT_ALLOWED`；单轮受 `MAX_AGENT_STEPS`/`MAX_TOOL_CALLS` 约束，超限安全停止并转人工。下单必须由客户在页面勾选条款后提交，Agent 无自主下单能力。
+- **报价令牌按需签发**：`POST /api/v1/assistant/quote-token` 在客户点击确认时才签发令牌，且仅当该报价确由本会话生成（依据助手消息的工具轨迹中的 `quote_id`）才返回，否则 404。令牌不随对话响应回传，也不会写入审计轨迹。
+- **需求抽取与注入防护为确定性实现**：`app/agents/requirement.py` 的 `RequirementExtractor` 做场景/数量/预算抽取与冲突检测，`detect_injection` 标记提示注入。二者均不依赖模型，可被单元测试稳定回归；命中注入时只披露与拒绝，不改写任何金额或状态。
 - 新建报价生成 64 位十六进制随机访问令牌。读取/确认报价、创建/读取订单须通过 `X-Quote-Token` 提交该令牌；它不是用户身份认证，正式多租户鉴权仍需补齐。访问令牌**仅在创建报价的响应中返回一次**，`GET /quotes/{id}` 与确认响应不再回显（`access_token: null`）；本地调试可用 `EXPOSE_QUOTE_TOKEN=true` 临时恢复回显。
 - 报价过期在确认和创建订单两条路径上都会校验：命中过期时报价落为 `EXPIRED` 并返回 `QUOTE_EXPIRED`。报价表使用 `ORDER_CREATED` 作为“已建单”状态，该状态仅表示订单已生成，不参与订单状态机。
 - 幂等键采用“先抢占后执行”：抢占在独立事务中提交，并发同键请求由唯一约束裁决，落败方等待并回放胜出方的结果，因此不会重复建单也不会返回 5xx。键被复用于不同报价时返回 `IDEMPOTENCY_KEY_REUSED`。
@@ -90,6 +95,7 @@ Agent 与价格/订单服务通过版本化 API 隔离。Agent 不得接受“�
 |---|---|
 | Tenant/User/Role | `tenant_id`、主体 ID、角色、权限版本、状态 |
 | Conversation | `conversation_id`、客户 ID、渠道、状态、trace、摘要、保留期 |
+| ConversationMessage | 会话 ID、角色、内容、意图、置信度、工具轨迹、trace |
 | RequirementVersion | `requirement_id`、版本、结构化字段、缺口、来源、创建人 |
 | Product/Capability | 产品 ID、能力、约束、目录版本、有效期、租户 |
 | AssetVersion | 类型、内容/Schema、版本、状态、来源、审核人、生效时间 |
@@ -109,6 +115,8 @@ Agent 与价格/订单服务通过版本化 API 隔离。Agent 不得接受“�
 - `POST /quotes/preview`、`POST /quotes`、`POST /quotes/{id}/confirm`、`GET /quotes/{id}`；
 - `POST /orders`、`GET /orders/{id}`、`POST /orders/{id}/transition`；
 - `GET/POST /admin/assets/{type}`、`POST /admin/assets/{type}/{id}/publish`、`GET /admin/audit-events`。
+
+**已实现的 Agent 端点**：`POST /assistant/messages` 为多轮对话入口，返回 `intent`、`answer`、`missing_fields`、`recommendations`、`quote`、`pending_action`、`handoff_required` 与 `requirement` 快照；`POST /assistant/quote-token` 按需签发报价访问令牌（`{session_id, quote_id}` → `{quote_id, access_token}`）。`POST /conversations`、`POST /requirements/validate` 尚未单独提供——会话由 `assistant/messages` 隐式创建，需求校验内联在编排器中。
 
 写 API 必须鉴权、校验租户和版本、支持幂等键，并返回资源版本与 trace_id。API Schema、错误码、分页、排序和兼容策略纳入契约测试；破坏性变更升级主版本。
 

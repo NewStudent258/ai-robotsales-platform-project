@@ -161,6 +161,73 @@ function addRecommendations(recommendations) {
   }
   messages.scrollTop = messages.scrollHeight;
 }
+
+// 助手已生成正式报价：直接进入报价核对步骤，把 Agent 与交易链路接起来。
+function addAssistantQuote(quote, pendingAction) {
+  const item = element('div', 'recommendation assistant-quote');
+  item.append(element('strong', '', `报价 ${quote.quote_number}`));
+  item.append(element('small', '', `合计 ${currency(quote.total, quote.currency)}`));
+  if (pendingAction?.requires_confirmation) {
+    item.append(element('small', '', pendingAction.message));
+  }
+  const button = element('button', 'recommendation-action', '查看并确认报价 →');
+  button.type = 'button';
+  button.addEventListener('click', () => reviewAssistantQuote(quote));
+  item.append(button);
+  messages.append(item);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// 用已有报价打开确认窗口，跳过重复填表，但仍需客户勾选条款。
+async function reviewAssistantQuote(quote) {
+  closeAssistant();
+  selectedProduct = null;
+  currentQuote = {
+    id: quote.quote_id,
+    quote_number: quote.quote_number,
+    currency: quote.currency,
+    total: quote.total,
+    subtotal: quote.total,
+    tax: 0,
+    version: quote.version,
+    expires_at: quote.expires_at,
+    items: [],
+    access_token: null,
+    session_id: sessionId,
+  };
+  orderKey = crypto.randomUUID();
+  quoteForm.reset();
+  document.querySelector('#quote-ref').textContent = `报价编号 ${quote.quote_number}`;
+  const lines = document.querySelector('#quote-lines');
+  lines.replaceChildren(element('div', 'quote-line', '该报价由智能助手生成，请在确认前核对金额与有效期。'));
+  document.querySelector('#quote-subtotal').textContent = currency(quote.total, quote.currency);
+  document.querySelector('#quote-tax').textContent = currency(0, quote.currency);
+  document.querySelector('#quote-total').textContent = currency(quote.total, quote.currency);
+  document.querySelector('#quote-expiry').textContent = quote.expires_at
+    ? `有效期至 ${new Date(quote.expires_at).toLocaleDateString('zh-CN')}`
+    : '';
+  document.querySelector('#quote-step-form').hidden = true;
+  document.querySelector('#quote-step-review').hidden = false;
+  document.querySelector('#quote-step-success').hidden = true;
+  document.querySelector('#quote-terms').checked = false;
+  document.querySelector('#confirm-order').disabled = true;
+  showQuoteError('');
+  quoteDialog.showModal();
+}
+
+// 令牌在用户真正要确认时才按需签发，不随对话响应回流。
+async function ensureQuoteToken() {
+  if (!currentQuote) return null;
+  if (currentQuote.access_token) return currentQuote.access_token;
+  const data = await request('/api/v1/assistant/quote-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: currentQuote.session_id, quote_id: currentQuote.id }),
+  });
+  currentQuote.access_token = data.access_token;
+  return currentQuote.access_token;
+}
+
 async function sendMessage(text) {
   if (!text.trim()) return;
   addMessage(text, 'user');
@@ -176,6 +243,10 @@ async function sendMessage(text) {
     placeholder.remove();
     addMessage(data.answer, 'assistant');
     addRecommendations(data.recommendations || []);
+    if (data.quote) addAssistantQuote(data.quote, data.pending_action);
+    if (data.handoff_required) {
+      addMessage('该请求已标记为需要人工跟进，我们的销售同事会尽快联系你。', 'assistant');
+    }
   } catch (error) {
     placeholder.remove();
     addMessage(error.message, 'assistant');
@@ -238,6 +309,14 @@ document.querySelector('#confirm-order').addEventListener('click', async (event)
   const button = event.currentTarget;
   button.disabled = true;
   showQuoteError('');
+  try {
+    // 助手生成的报价在此刻才换取访问令牌。
+    await ensureQuoteToken();
+  } catch (error) {
+    showQuoteError(error.message);
+    button.disabled = false;
+    return;
+  }
   try {
     await request(`/api/v1/quotes/${currentQuote.id}/confirm?version=${currentQuote.version}`, {
       method: 'POST',

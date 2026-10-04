@@ -14,6 +14,10 @@ async def test_frontend_home_and_static_assets(client):
     assert "/api/v1/assistant/messages" in script.text
     assert "/api/v1/quotes" in script.text
     assert "Idempotency-Key" in script.text
+    # P0：助手生成的报价必须能接入确认流程，且令牌按需换取而非随对话回流。
+    assert "/api/v1/assistant/quote-token" in script.text
+    assert "ensureQuoteToken" in script.text
+    assert "reviewAssistantQuote" in script.text
     assert "innerHTML" not in script.text
 
     sales = await client.get("/sales")
