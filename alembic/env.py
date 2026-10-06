@@ -11,6 +11,7 @@ from app.db.base import Base
 # 否则 autogenerate 会认为库中没有任何表。此导入看似未使用，实为副作用依赖。
 from app.models import commerce as _commerce  # noqa: F401
 from app.models import conversation as _conversation  # noqa: F401
+from app.models import pricing as _pricing  # noqa: F401
 from app.models import product as _product  # noqa: F401
 
 config = context.config

@@ -9,7 +9,13 @@
 - MySQL 保存产品、价格、报价、订单和审计事实；语义检索索引可独立部署，不能替代 MySQL 主数据。
 - 当前客户路径：产品目录→选择产品和数量→服务端报价→客户确认→幂等创建订单；前端直接使用同源 `/api/v1` 接口。
 - `/sales` 由 FastAPI 提供独立销售页；商品清单从 `GET /api/v1/products` 获取，浏览器端搜索/筛选/排序及报价单仅是展示与选品状态。报价单只在浏览器 `localStorage` 保存商品 ID 和数量；联系人与访问令牌不持久化。浏览器端预估小计不是报价事实，多商品正式金额由 `POST /api/v1/quotes` 决定。
-- 当前价格策略为 `base-price-v1`：产品基础价乘数量，税额为 0；客户端税率字段被拒绝，不同币种不能合并报价。税费、折扣和交付费用规则尚未实现。
+- **价格规则库（P1）**：`pricing_rules` 表承载规则，字段含 `code`、`kind`（`discount`/`tax`）、`priority`、`version`、`status`、`condition`、`action`、`effective_from/to` 与 `requires_approval`。`app/services/pricing_service.py` 是唯一价格真源，纯计算优先、不写库。
+- **定价顺序是契约**（改动即破坏可复算性）：① 行小计 = 服务端基础价 × 数量；② 折扣：命中的折扣规则按 `(priority desc, code asc)` 排序后**择一**取第一条（不叠加）；③ 折后小计 = 小计 − 折扣（不为负）；④ **税额基于折后金额**计算；⑤ 合计 = 折后小计 + 税额。每步 `ROUND_HALF_UP` 量化到分。策略标识为 `rule-based-v2`。
+- **条件表达式保持极小集合**（`eq`/`in`/`gte`/`lte`），不做任意表达式求值，避免把代码注入面引入配置。未知字段或类型不匹配一律**视为不命中**（默认不给折扣），防止配置笔误放大优惠。
+- **规则生效窗口**按 UTC 比较；`status != ACTIVE` 或不在 `effective_from`/`effective_to` 窗口内的规则不参与定价。无任何规则时税额与折扣均为 0，与升级前 `base-price-v1` 行为一致，历史报价可复算。
+- **报价版本谱系（P1）**：`quotes.root_quote_id` 指向链首版（首版自指），`superseded_by_id` 指向取代它的新版本。重新报价**新建一条 Quote 行**，旧版标记 `SUPERSEDED` 且金额保留不变——不就地改写，否则已确认/已成交报价的审计链会断裂。`ORDER_CREATED`、`SUPERSEDED`、`EXPIRED` 不允许再次修改（`QUOTE_NOT_REVISABLE`）。
+- **报价快照固化规则版本**：`Quote.snapshot` 记录 `pricing_policy`、逐行金额与所用规则的 `code`/`version`/`amount`。规则事后变更**不影响**既有报价金额，历史报价始终可解释、可复算。
+- 客户端税率字段仍被拒绝（`extra="forbid"`），税额只能由规则库决定；不同币种不能合并报价，重新报价亦须与原报价币种一致。
 - **Agent 编排已接入（P0）**：`app/services/assistant_service.py` 为 Provider 中立的编排器，负责多轮上下文、工具循环、步数/工具预算、审计与转人工；`app/agents/provider.py` 定义 `AgentProvider` 协议、`ToolRegistry` 白名单与 `AgentTurn` 决策结构。当前默认实现为 `MockAgentProvider`（`app/agents/mock_provider.py`），是**确定性实现**，真实 LLM 适配器只需实现同一协议，业务链路无需改动。
 - **会话与需求已持久化**：`conversations` 表保存 `session_id`、结构化需求快照、需求版本与转人工标记；`conversation_messages` 保存 user/assistant 消息、意图、置信度与工具轨迹。`session_id` 由服务端生成并在后续轮次复用，不再是一次性返回值。
 - **工具白名单**：`search_products`（只读）、`create_quote`（写本地，复用 `CommerceService`，金额服务端复算）、`prepare_order`（`write_commit`，**只准备动作、不创建订单**）。未注册工具名一律返回 `TOOL_NOT_ALLOWED`；单轮受 `MAX_AGENT_STEPS`/`MAX_TOOL_CALLS` 约束，超限安全停止并转人工。下单必须由客户在页面勾选条款后提交，Agent 无自主下单能力。
@@ -21,7 +27,7 @@
 - 订单状态机实现见 `app/services/commerce_service.py` 的 `ORDER_TRANSITIONS`，与 §3 表格一致，`COMPLETED`、`CANCELLED`、`EXPIRED` 为终态（出度为空集）。
 - 全部错误响应统一为 `{data: null, error: {code, message, retryable, handoff_required}, trace_id}`，由 `app/core/errors.py` 统一注入；每个请求都返回 `X-Trace-Id` 响应头，合法的上游 trace_id 会被沿用。参数校验错误额外给出 `error.fields`。
 - `POST /products` 需运营后台令牌 `X-Admin-Token`（配置项 `ADMIN_API_TOKEN`）。未配置令牌时一律拒绝，不再依赖 `DEBUG` 开关；正式 RBAC/OIDC 见 §7。
-- 已补充 GitHub Actions 门禁（`.github/workflows/ci.yml`）：`ruff check`、`ruff format --check`、迁移可用性、种子脚本与 `pytest`。
+- 已补充 GitHub Actions 门禁（`.github/workflows/ci.yml`）：`ruff check`、`ruff format --check`、迁移可用性、产品种子、**价格规则种子**与 `pytest`。
 
 ## 1. 架构原则与模块边界
 
@@ -99,7 +105,8 @@ Agent 与价格/订单服务通过版本化 API 隔离。Agent 不得接受“�
 | RequirementVersion | `requirement_id`、版本、结构化字段、缺口、来源、创建人 |
 | Product/Capability | 产品 ID、能力、约束、目录版本、有效期、租户 |
 | AssetVersion | 类型、内容/Schema、版本、状态、来源、审核人、生效时间 |
-| Quote | 报价 ID、版本、需求/方案快照、金额明细、币种、税、有效期、规则版本、状态、哈希 |
+| PricingRule | `code`、`kind`、`priority`、`version`、`status`、条件、动作、生效窗口、是否需审批 |
+| Quote | 报价 ID、版本、`root_quote_id`、`superseded_by_id`、需求/方案快照、金额明细（小计/折扣/税/合计）、币种、有效期、规则版本、状态、哈希 |
 | Order | 订单 ID、客户、确认报价快照、金额、状态、幂等键、创建时间 |
 | OrderEvent | 事件 ID、聚合 ID、序号、前后状态、操作者、原因、时间、载荷摘要 |
 | IdempotencyRecord | 租户、键、请求哈希、状态、响应、过期时间 |
@@ -116,7 +123,11 @@ Agent 与价格/订单服务通过版本化 API 隔离。Agent 不得接受“�
 - `POST /orders`、`GET /orders/{id}`、`POST /orders/{id}/transition`；
 - `GET/POST /admin/assets/{type}`、`POST /admin/assets/{type}/{id}/publish`、`GET /admin/audit-events`。
 
+**已实现的报价端点（P1）**：`POST /quotes/{id}/revise` 生成新版本，请求体为报价要素 + `expected_version`（乐观锁），响应含 `versions` 版本链与 `applied_rules` 生效规则。`GET /quotes/{id}` 同样返回 `discount`、`applied_rules` 与 `versions`，使金额可解释、历史可追溯。
+
 **已实现的 Agent 端点**：`POST /assistant/messages` 为多轮对话入口，返回 `intent`、`answer`、`missing_fields`、`recommendations`、`quote`、`pending_action`、`handoff_required` 与 `requirement` 快照；`POST /assistant/quote-token` 按需签发报价访问令牌（`{session_id, quote_id}` → `{quote_id, access_token}`）。`POST /conversations`、`POST /requirements/validate` 尚未单独提供——会话由 `assistant/messages` 隐式创建，需求校验内联在编排器中。
+
+**尚未提供**：规则库的运营 CRUD 端点（`/admin/pricing-rules`）。当前规则经 `scripts/seed_pricing_rules.py` 写入，运营后台与审批流见 §7 与 PRD §4，属 M4 范围。
 
 写 API 必须鉴权、校验租户和版本、支持幂等键，并返回资源版本与 trace_id。API Schema、错误码、分页、排序和兼容策略纳入契约测试；破坏性变更升级主版本。
 

@@ -35,6 +35,7 @@ DEFAULT_MESSAGES = {
     "QUOTE_VERSION_CONFLICT": "报价已更新，请重新获取。",
     "QUOTE_EXPIRED": "报价已过期。",
     "QUOTE_NOT_CONFIRMED": "报价尚未确认。",
+    "QUOTE_NOT_REVISABLE": "该报价已建单、已过期或已被新版本取代，无法再次修改。",
     "IDEMPOTENCY_KEY_REUSED": "幂等键已用于其它请求。",
     "IDEMPOTENCY_RESULT_MISSING": "幂等结果缺失，需要人工核查。",
     "IDEMPOTENCY_IN_PROGRESS": "相同请求正在处理中，请稍后重试。",

@@ -178,6 +178,40 @@ function addAssistantQuote(quote, pendingAction) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+// 统一的金额构成渲染：折扣、税额、生效规则与版本链。
+// 两条报价路径共用，避免展示口径漂移。
+function renderQuoteTotals(quote) {
+  const code = quote.currency;
+  document.querySelector('#quote-subtotal').textContent = currency(quote.subtotal, code);
+
+  const discountRow = document.querySelector('#quote-discount-row');
+  const discount = Number(quote.discount || 0);
+  discountRow.hidden = !(discount > 0);
+  if (discount > 0) {
+    document.querySelector('#quote-discount').textContent = `−${currency(discount, code)}`;
+  }
+
+  document.querySelector('#quote-tax').textContent = currency(quote.tax || 0, code);
+  document.querySelector('#quote-total').textContent = currency(quote.total, code);
+
+  // 生效规则：让客户看到优惠/税额的依据，而不是只给一个数字。
+  const rules = document.querySelector('#quote-rules');
+  const applied = quote.applied_rules || [];
+  rules.replaceChildren();
+  rules.hidden = !applied.length;
+  for (const rule of applied) {
+    rules.append(element('li', '', `${rule.detail || rule.name}（规则 ${rule.code} v${rule.version}）`));
+  }
+
+  // 版本链：重新报价后客户可以看到历史版本与被取代状态。
+  const versionNode = document.querySelector('#quote-versions');
+  const versions = quote.versions || [];
+  versionNode.hidden = versions.length <= 1;
+  versionNode.textContent = versions.length > 1
+    ? `版本记录：${versions.map((item) => `v${item.version} ${currency(item.total, code)}${item.is_current ? '（当前）' : ''}`).join(' · ')}`
+    : '';
+}
+
 // 用已有报价打开确认窗口，跳过重复填表，但仍需客户勾选条款。
 async function reviewAssistantQuote(quote) {
   closeAssistant();
@@ -187,11 +221,14 @@ async function reviewAssistantQuote(quote) {
     quote_number: quote.quote_number,
     currency: quote.currency,
     total: quote.total,
-    subtotal: quote.total,
-    tax: 0,
+    subtotal: quote.subtotal ?? quote.total,
+    discount: quote.discount || 0,
+    tax: quote.tax || 0,
     version: quote.version,
     expires_at: quote.expires_at,
     items: [],
+    applied_rules: [],
+    versions: [],
     access_token: null,
     session_id: sessionId,
   };
@@ -200,9 +237,7 @@ async function reviewAssistantQuote(quote) {
   document.querySelector('#quote-ref').textContent = `报价编号 ${quote.quote_number}`;
   const lines = document.querySelector('#quote-lines');
   lines.replaceChildren(element('div', 'quote-line', '该报价由智能助手生成，请在确认前核对金额与有效期。'));
-  document.querySelector('#quote-subtotal').textContent = currency(quote.total, quote.currency);
-  document.querySelector('#quote-tax').textContent = currency(0, quote.currency);
-  document.querySelector('#quote-total').textContent = currency(quote.total, quote.currency);
+  renderQuoteTotals(currentQuote);
   document.querySelector('#quote-expiry').textContent = quote.expires_at
     ? `有效期至 ${new Date(quote.expires_at).toLocaleDateString('zh-CN')}`
     : '';
@@ -257,21 +292,39 @@ document.querySelectorAll('.quick-prompts button').forEach((button) => button.ad
 
 quoteForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!selectedProduct || !quoteForm.reportValidity()) return;
+  if (!quoteForm.reportValidity()) return;
+  // 助手生成的报价没有 selectedProduct，此时沿用该报价首行产品。
+  const productId = selectedProduct?.id ?? currentQuote?.items?.[0]?.product_id;
+  if (!productId) return;
   const submit = quoteForm.querySelector('button[type="submit"]');
   submit.disabled = true;
   showQuoteError('');
   const fields = new FormData(quoteForm);
   try {
-    currentQuote = await request('/api/v1/quotes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_name: fields.get('customer_name'),
-        customer_email: fields.get('customer_email'),
-        items: [{ product_id: selectedProduct.id, quantity: Number(fields.get('quantity')) }],
-      }),
-    });
+    const body = {
+      customer_name: fields.get('customer_name'),
+      customer_email: fields.get('customer_email'),
+      items: [{ product_id: productId, quantity: Number(fields.get('quantity')) }],
+    };
+    if (currentQuote && currentQuote.id) {
+      // 已有报价：生成新版本，旧版由服务端标记为被取代，历史得以保留。
+      const token = await ensureQuoteToken();
+      const revised = await request(`/api/v1/quotes/${currentQuote.id}/revise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Quote-Token': token },
+        body: JSON.stringify({ ...body, expected_version: currentQuote.version }),
+      });
+      // 新版本自带新令牌；旧令牌随旧版本失效，必须一并替换。
+      revised.access_token = revised.access_token || token;
+      revised.session_id = currentQuote.session_id;
+      currentQuote = revised;
+    } else {
+      currentQuote = await request('/api/v1/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
     orderKey = crypto.randomUUID();
     document.querySelector('#quote-ref').textContent = `报价编号 ${currentQuote.quote_number}`;
     const lines = document.querySelector('#quote-lines');
@@ -279,9 +332,7 @@ quoteForm.addEventListener('submit', async (event) => {
     for (const item of currentQuote.items) {
       lines.append(element('div', 'quote-line', `${item.product_name} × ${item.quantity} · ${currency(item.line_total, currentQuote.currency)}`));
     }
-    document.querySelector('#quote-subtotal').textContent = currency(currentQuote.subtotal, currentQuote.currency);
-    document.querySelector('#quote-tax').textContent = currency(currentQuote.tax, currentQuote.currency);
-    document.querySelector('#quote-total').textContent = currency(currentQuote.total, currentQuote.currency);
+    renderQuoteTotals(currentQuote);
     document.querySelector('#quote-expiry').textContent = `有效期至 ${new Date(currentQuote.expires_at).toLocaleDateString('zh-CN')}`;
     document.querySelector('#quote-step-form').hidden = true;
     document.querySelector('#quote-step-review').hidden = false;
@@ -296,7 +347,7 @@ document.querySelector('#quote-terms').addEventListener('change', (event) => {
   document.querySelector('#confirm-order').disabled = !event.target.checked;
 });
 document.querySelector('#edit-configuration').addEventListener('click', () => {
-  currentQuote = null;
+  // 保留 currentQuote：再次提交时以它为基础生成新版本，而不是丢掉历史。
   orderKey = null;
   document.querySelector('#quote-terms').checked = false;
   document.querySelector('#confirm-order').disabled = true;

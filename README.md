@@ -41,7 +41,32 @@ uvicorn app.main:app --reload
 pytest
 ```
 
-测试使用 SQLite 内存库，生产和开发环境使用 MySQL。金额由服务端按 `base-price-v1` 计算，当前税额固定为 0；正式税费、折扣和支付尚未接入。
+测试使用 SQLite 内存库，生产和开发环境使用 MySQL。
+
+## 价格规则与折扣
+
+价格由规则库确定性计算（`pricing_rules` 表 + `app/services/pricing_service.py`），是唯一价格真源。初始化规则：
+
+```powershell
+python scripts/seed_pricing_rules.py
+```
+
+**定价顺序**（顺序即契约）：行小计 → 折扣 → 折后小计 → 基于折后金额计税 → 合计。折扣采用**择一**语义：多条规则同时命中时只取优先级最高的一条（不叠加），同优先级按 `code` 稳定排序，保证同一输入永远得到同一结果。
+
+规则支持 `ACTIVE`/`DRAFT`/`RETIRED` 状态与 `effective_from`/`effective_to` 生效窗口；窗口外或未启用的规则不参与定价。**无任何规则时税额与折扣均为 0**，与升级前行为一致，历史报价可复算。
+
+金额构成可解释：报价响应的 `applied_rules` 给出实际生效规则的编号、名称与版本，报价页逐项展示。
+
+## 重新报价与版本
+
+客户修改数量或联系人时调用 `POST /api/v1/quotes/{id}/revise`，请求体为报价要素加 `expected_version`（乐观锁）：
+
+- **新建一条报价记录**，`version` 递增，通过 `root_quote_id` 关联首版；
+- 旧版本标记 `SUPERSEDED`，**金额保留不变**（不就地改写，保证审计链完整）；
+- 已建单、已过期或已被取代的报价不允许再次修改，返回 `QUOTE_NOT_REVISABLE`；
+- 报价快照固化所用规则版本，规则事后变更**不影响**既有报价金额。
+
+`GET /quotes/{id}` 返回 `versions` 版本链，报价页展示历史版本与当前版本。
 
 报价返回的 `access_token` 是访问该报价与订单的凭证，**仅在创建报价时返回一次**，后续读取不会回显；它不应放进 URL 或日志。产品写入 API 需要运营后台令牌：在 `.env` 中设置 `ADMIN_API_TOKEN` 后，通过 `X-Admin-Token` 请求头调用 `POST /api/v1/products`；未配置令牌时写接口一律拒绝（默认拒绝），完整的 RBAC/OIDC 仍待实现。
 

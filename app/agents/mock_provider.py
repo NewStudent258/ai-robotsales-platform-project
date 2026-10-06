@@ -7,8 +7,18 @@
 编排器与业务链路无需改动。
 """
 
+from decimal import Decimal, InvalidOperation
+
 from app.agents.provider import AgentContext, AgentTurn, ToolCall
 from app.agents.requirement import extract_quote_intent
+
+
+def _decimal(value: object) -> Decimal:
+    """把工具回传的金额字符串安全转成 Decimal；无法解析时按 0 处理。"""
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return Decimal("0")
 
 
 class MockAgentProvider:
@@ -67,10 +77,16 @@ class MockAgentProvider:
         if quote and quote.get("ok"):
             data = quote.get("data") or {}
             prepared = observations.get("prepare_order") or {}
-            lines = [
-                f"报价编号 {data.get('quote_number')}",
-                f"合计 {data.get('currency')} {data.get('total')}",
-            ]
+            lines = [f"报价编号 {data.get('quote_number')}"]
+            # 金额构成必须逐项披露，客户才能核对优惠与税额的依据。
+            discount = _decimal(data.get("discount"))
+            if discount > 0:
+                lines.append(f"原价 {data.get('currency')} {data.get('subtotal')}")
+                lines.append(f"折扣 −{data.get('discount')}")
+            tax = _decimal(data.get("tax"))
+            if tax > 0:
+                lines.append(f"税额 {data.get('tax')}")
+            lines.append(f"合计 {data.get('currency')} {data.get('total')}")
             if prepared.get("ok"):
                 lines.append("订单已准备就绪，请你在页面上核对条款后确认创建。")
             return AgentTurn(

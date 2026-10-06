@@ -17,10 +17,19 @@ class Quote(TimestampMixin, Base):
     customer_email: Mapped[str] = mapped_column(String(200))
     currency: Mapped[str] = mapped_column(String(3), default="CNY")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    # 折扣额（正数表示减免多少）。旧数据为 0，保持向后兼容。
+    discount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     tax: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     status: Mapped[str] = mapped_column(String(32), default="DRAFT", index=True)
     version: Mapped[int] = mapped_column(default=1)
+    # 版本谱系：同一报价经重新报价形成链，root_quote_id 指向首版。
+    # 首版自指（root_quote_id == id 在写入时由服务赋值）。
+    root_quote_id: Mapped[int | None] = mapped_column(
+        ForeignKey("quotes.id"), nullable=True, index=True
+    )
+    # 被取代它的新版本 ID（旧版被重新报价后写入），便于双向追溯。
+    superseded_by_id: Mapped[int | None] = mapped_column(ForeignKey("quotes.id"), nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
     snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
 

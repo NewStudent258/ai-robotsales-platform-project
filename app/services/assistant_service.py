@@ -255,6 +255,10 @@ class AssistantService:
         return {
             "quote_id": data.get("quote_id"),
             "quote_number": data.get("quote_number"),
+            "subtotal": data.get("subtotal"),
+            # 折扣与税额由价格服务按规则计算，这里只做透传。
+            "discount": data.get("discount"),
+            "tax": data.get("tax"),
             "total": data.get("total"),
             "currency": data.get("currency"),
             "version": data.get("version"),

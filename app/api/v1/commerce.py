@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,18 +8,43 @@ from app.core.security import require_admin
 from app.db.session import get_db
 from app.models.commerce import Order
 from app.schemas.commerce import (
+    AppliedRuleRead,
     OrderRead,
     OrderTransitionRequest,
     QuoteCreateRequest,
     QuoteItemRead,
     QuoteRead,
+    QuoteReviseRequest,
+    QuoteVersionRead,
 )
 from app.services.commerce_service import ORDER_TRANSITIONS, CommerceService
 
 router = APIRouter(tags=["commerce"])
 
 
-def _quote_read(quote_tuple, *, include_token: bool) -> QuoteRead:
+def _rule_detail(rule: dict) -> str:
+    label = "折扣" if rule.get("kind") == "discount" else "税费"
+    return f"{rule.get('name', '')}（{label}）"
+
+
+def _applied_rules(quote) -> list[AppliedRuleRead]:
+    """从报价快照还原生效规则，使金额可解释、可追溯。"""
+    snapshot = quote.snapshot or {}
+    return [
+        AppliedRuleRead(
+            code=str(rule.get("code", "")),
+            name=str(rule.get("name", "")),
+            kind=str(rule.get("kind", "")),
+            version=int(rule.get("version", 1)),
+            priority=int(rule.get("priority", 0)),
+            amount=Decimal(str(rule.get("amount", "0"))),
+            detail=_rule_detail(rule),
+        )
+        for rule in snapshot.get("rules", [])
+    ]
+
+
+def _quote_read(quote_tuple, *, include_token: bool, versions: list | None = None) -> QuoteRead:
     quote, items = quote_tuple
     # 访问令牌是读取/确认该报价的凭证，默认只在创建时返回一次，
     # 避免它随每次读取回流到响应体、日志或浏览器缓存。
@@ -30,6 +57,7 @@ def _quote_read(quote_tuple, *, include_token: bool) -> QuoteRead:
         customer_email=quote.customer_email,
         currency=quote.currency,
         subtotal=quote.subtotal,
+        discount=quote.discount,
         tax=quote.tax,
         total=quote.total,
         status=quote.status,
@@ -45,14 +73,32 @@ def _quote_read(quote_tuple, *, include_token: bool) -> QuoteRead:
             )
             for item in items
         ],
+        applied_rules=_applied_rules(quote),
+        versions=[
+            QuoteVersionRead(
+                id=row.id,
+                quote_number=row.quote_number,
+                version=row.version,
+                status=row.status,
+                subtotal=row.subtotal,
+                discount=row.discount,
+                tax=row.tax,
+                total=row.total,
+                is_current=row.id == quote.id,
+            )
+            for row in (versions or [])
+        ],
     )
 
 
-async def _load_quote(service: CommerceService, quote_id: int, *, include_token: bool) -> QuoteRead:
+async def _load_quote(
+    service: CommerceService, quote_id: int, *, include_token: bool, with_versions: bool = True
+) -> QuoteRead:
     result = await service.get_quote(quote_id)
     if result is None:
         raise HTTPException(status_code=404, detail={"code": "QUOTE_NOT_FOUND"})
-    return _quote_read(result, include_token=include_token)
+    chain = await service.get_quote_history(quote_id) if with_versions else []
+    return _quote_read(result, include_token=include_token, versions=chain)
 
 
 @router.post("/quotes", response_model=QuoteRead, status_code=201)
@@ -88,6 +134,25 @@ async def confirm_quote(
     await service.require_quote_access(quote_id, access_token)
     await service.confirm_quote(quote_id, version)
     return await _load_quote(service, quote_id, include_token=False)
+
+
+@router.post("/quotes/{quote_id}/revise", response_model=QuoteRead, status_code=201)
+async def revise_quote(
+    quote_id: int,
+    payload: QuoteReviseRequest,
+    access_token: str = Header(alias="X-Quote-Token"),
+    db: AsyncSession = Depends(get_db),
+) -> QuoteRead:
+    """基于既有报价生成新版本。
+
+    客户修改数量、方案或联系信息时调用；旧版本标记 `SUPERSEDED` 并保留原金额，
+    新版本成为唯一可确认的当前版本。`expected_version` 提供乐观并发保护。
+    响应返回新版本，其中 `versions` 给出完整版本链。
+    """
+    service = CommerceService(db)
+    await service.require_quote_access(quote_id, access_token)
+    revision = await service.revise_quote(quote_id, payload, payload.expected_version)
+    return await _load_quote(service, revision.id, include_token=True)
 
 
 def _order_read(order: Order) -> OrderRead:

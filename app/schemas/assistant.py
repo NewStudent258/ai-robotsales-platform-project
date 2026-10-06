@@ -26,6 +26,9 @@ class AssistantQuote(BaseModel):
 
     quote_id: int
     quote_number: str
+    subtotal: str | None = None
+    discount: str | None = None
+    tax: str | None = None
     total: str
     currency: str
     version: int

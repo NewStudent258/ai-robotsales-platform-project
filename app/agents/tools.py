@@ -85,6 +85,8 @@ async def _create_quote(
                     "quantity": int(arguments.get("quantity", 1)),
                 }
             ],
+            # 行业来自已抽取的结构化需求，仅供规则匹配；金额仍由价格服务决定。
+            industry=context.requirement.get("industry"),
         )
     except (ValidationError, KeyError, TypeError, ValueError):
         # 缺少联系人等必填信息时，不生成报价，改为向用户追问。
@@ -106,6 +108,8 @@ async def _create_quote(
             "access_token": quote.access_token,
             "currency": quote.currency,
             "subtotal": str(quote.subtotal),
+            # 折扣与税额由价格服务按规则计算，Agent 只做透传与解释。
+            "discount": str(quote.discount),
             "tax": str(quote.tax),
             "total": str(quote.total),
             "version": quote.version,

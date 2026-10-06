@@ -49,5 +49,11 @@ jobs:
           rm -f ci_seed.db
           DATABASE_URL="sqlite+aiosqlite:///./ci_seed.db" AUTO_CREATE_TABLES=true python scripts/seed_products.py
 
+      - name: Pricing rules seed runs
+        run: |
+          rm -f ci_pricing.db
+          DATABASE_URL="sqlite+aiosqlite:///./ci_pricing.db" python -m alembic upgrade head
+          DATABASE_URL="sqlite+aiosqlite:///./ci_pricing.db" python scripts/seed_pricing_rules.py
+
       - name: Tests
         run: python -m pytest -q

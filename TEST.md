@@ -252,6 +252,61 @@ ORDER_TRANSITIONS = {
 | T-RQ-17 | `test_does_not_guess_missing_values` | 抽不到不臆造联系方式 | ✅ PASSED |
 | T-RQ-18 | `test_rejects_unknown_fields` | Schema 拒绝未声明字段 | ✅ PASSED |
 
+### 5.9 价格规则与折扣（`tests/test_pricing.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-PR-01 | `test_no_rules_means_zero_tax_and_zero_discount` | 无规则时与升级前一致 | ✅ PASSED |
+| T-PR-02 | `test_tax_applied_on_subtotal_when_no_discount` | 无折扣时税率作用于小计 | ✅ PASSED |
+| T-PR-03 | `test_tax_is_charged_on_discounted_base_not_original` | **顺序契约**：税基于折后价 | ✅ PASSED |
+| T-PR-04 | `test_highest_priority_discount_wins` | **择一**：最高优先级生效 | ✅ PASSED |
+| T-PR-05 | `test_discounts_are_not_stacked` | 多条命中不叠加 | ✅ PASSED |
+| T-PR-06 | `test_condition_not_met_gives_no_discount` | 条件不满足不优惠 | ✅ PASSED |
+| T-PR-07 | `test_fixed_amount_discount` | 固定金额折扣 | ✅ PASSED |
+| T-PR-08 | `test_discount_cannot_exceed_subtotal` | 折扣上限，不出负数 | ✅ PASSED |
+| T-PR-09 | `test_unknown_condition_field_does_not_match` | 字段笔误默认不给折扣 | ✅ PASSED |
+| T-PR-10 | `test_type_mismatch_condition_does_not_crash` | 脏配置不中断报价 | ✅ PASSED |
+| T-PR-11 | `test_amounts_quantized_to_cents` | 取整到分 | ✅ PASSED |
+| T-PR-12 | `test_same_input_yields_same_result` | 可复算性 | ✅ PASSED |
+| T-PR-13 | `test_snapshot_records_rule_versions` | 快照固化规则版本 | ✅ PASSED |
+| T-PR-14 | `test_rule_ordering_is_deterministic` | 同优先级按 code 稳定排序 | ✅ PASSED |
+| T-PR-15 | `test_inactive_and_out_of_window_rules_excluded` | 未启用/窗口外规则排除 | ✅ PASSED |
+
+### 5.10 规则经 API 端到端定价（`tests/test_pricing_rules_api.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-PA-01 | `test_tax_rule_applied_via_api` | 税率经 API 生效 | ✅ PASSED |
+| T-PA-02 | `test_volume_discount_applied_via_api` | 阶梯折扣阈值边界（9 台无、10 台有） | ✅ PASSED |
+| T-PA-03 | `test_discount_and_tax_combined_order` | 折扣+税组合：10000→折 2000→税 1040→9040 | ✅ PASSED |
+| T-PA-04 | `test_only_one_discount_applies` | 择一在 API 层成立 | ✅ PASSED |
+| T-PA-05 | `test_draft_rule_not_applied` | DRAFT 规则不影响金额 | ✅ PASSED |
+| T-PA-06 | `test_expired_rule_not_applied` | 过期规则不生效 | ✅ PASSED |
+| T-PA-07 | `test_future_rule_not_applied` | 未到生效时间不生效 | ✅ PASSED |
+| T-PA-08 | `test_snapshot_freezes_rule_version` | 快照记录规则版本号 | ✅ PASSED |
+| T-PA-09 | `test_snapshot_records_line_details` | 快照记录逐行金额 | ✅ PASSED |
+
+### 5.11 报价版本递增与重新报价（`tests/test_quote_revision.py`）
+
+| ID | 用例 | 验证点 | 状态 |
+|---|---|---|---|
+| T-QR-01 | `test_revision_creates_new_version_row` | **新建行**而非就地改写，原金额保留 | ✅ PASSED |
+| T-QR-02 | `test_original_marked_superseded_and_linked` | 旧版 `SUPERSEDED` 且双向关联 | ✅ PASSED |
+| T-QR-03 | `test_revision_shares_root` | 新版本共享 `root_quote_id` | ✅ PASSED |
+| T-QR-04 | `test_chain_accumulates_versions` | 三次报价形成 v1/v2/v3 链 | ✅ PASSED |
+| T-QR-05 | `test_revision_recomputes_amount` | 新版本按新数量重算 | ✅ PASSED |
+| T-QR-06 | `test_stale_expected_version_conflicts` | 乐观锁拒绝过期版本 | ✅ PASSED |
+| T-QR-07 | `test_superseded_quote_cannot_be_revised_again` | 被取代的不可再派生 | ✅ PASSED |
+| T-QR-08 | `test_order_created_quote_cannot_be_revised` | **已建单报价冻结** | ✅ PASSED |
+| T-QR-09 | `test_requires_matching_access_token` | 令牌不匹配返回 404 | ✅ PASSED |
+| T-QR-10 | `test_requires_expected_version` | 缺乐观锁字段 422 | ✅ PASSED |
+| T-QR-11 | `test_client_cannot_inject_amount` | 客户端无法注入金额 | ✅ PASSED |
+| T-QR-12 | `test_revision_expiry_reset` | 新版本重新获得有效期 | ✅ PASSED |
+| T-QR-13 | `test_revision_applies_current_rules` | 重新报价按当前规则重算 | ✅ PASSED |
+| T-QR-14 | `test_quote_created_before_rules_keeps_price` | 规则变更不改写既有报价 | ✅ PASSED |
+| T-QR-15 | `test_applied_rules_returned_for_explainability` | 生效规则可解释 | ✅ PASSED |
+| T-QR-16 | `test_no_rules_means_empty_applied_rules` | 无规则不编造依据 | ✅ PASSED |
+
 ### 5.6 安全与幂等要点（已覆盖）
 
 | 机制 | 实现位置 | 测试用例 |
@@ -324,19 +379,22 @@ tests/test_order_integrity.py        6 passed   # 过期下单、幂等并发、
 tests/test_order_state_machine.py   25 passed   # G-01 迁移矩阵、G-03 乐观锁
 tests/test_agent_orchestration.py   20 passed   # P0：多轮、工具白名单、下单边界、令牌签发
 tests/test_requirement.py           24 passed   # P0：需求抽取、缺口、冲突、注入防护
+tests/test_pricing.py               19 passed   # P1：折扣择一、税基顺序、取整、生效窗口
+tests/test_pricing_rules_api.py      9 passed   # P1：规则经 API 端到端定价、快照固化版本
+tests/test_quote_revision.py        17 passed   # P1：版本递增、乐观锁、改写守卫、版本链
 
-============================= 95 passed in 4.19s ==============================
+============================= 140 passed in 6.48s =============================
 ```
 
 | 指标 | 结果 |
 |---|---|
-| 用例总数 | 95 |
-| 通过 | 95 |
+| 用例总数 | 140 |
+| 通过 | 140 |
 | 失败 | 0 |
 | 跳过 | 0 |
 | 退出码 | 0 ✅ |
 
-**结论**：当前基线为**全绿**，MVP 主链路（选型→报价→确认→下单）端到端可跑通，且 P0 之后**客户可从对话直接拿到正式报价**。`ruff check .` 与 `ruff format --check .` 均通过。
+**结论**：当前基线为**全绿**。MVP 主链路（选型→报价→确认→下单）端到端可跑通；P0 之后客户可从对话直接拿到正式报价；P1 之后报价金额由规则库确定性计算（含折扣与税费），并支持版本递增与重新报价。`ruff check .` 与 `ruff format --check .` 均通过。
 
 ---
 
@@ -363,6 +421,8 @@ tests/test_requirement.py           24 passed   # P0：需求抽取、缺口、�
 | G-06 | 无独立单元测试层，`ProductService.search_for_assistant` 的中文分词（2-gram）逻辑仅被间接覆盖 | 分词边界（单字、超长词、混合中英）无验证 |
 | ~~G-07~~ | ~~无并发测试~~ **已修复**：`test_concurrent_same_key_creates_single_order` 用文件型 SQLite + 连接池验证同键并发只产生一个订单 | — | ✅ |
 | ~~G-08~~ | ~~无 `ORDER_INVALID_TRANSITION` 用例~~ **已修复**：`test_order_state_machine_matches_arch` 覆盖 `COMPLETED` 可达性与终态守卫 | — | ✅ |
+| G-13 | 价格规则库无运营 CRUD 端点与审批流，规则只能经种子脚本写入，`requires_approval` 字段尚无流程消费 | 折扣规则变更缺少审批留痕，与 ARCH §7 要求存在差距 |
+| G-14 | `pricing_rules` 的 `condition`/`action` 为 JSON 列，**无 Schema 校验**，脏配置只能靠运行时不命中兜底 | 配置错误不会在写入时报错，只能事后从金额异常发现 |
 
 ### 8.3 低优先级缺口
 
@@ -370,9 +430,10 @@ tests/test_requirement.py           24 passed   # P0：需求抽取、缺口、�
 |---|---|
 | G-09 | `OrderEvent.actor` 字段有默认值 `"system"`，但无审计用例验证操作者记录 |
 | G-10 | `alembic/versions/7b23c4e8a901_quote_access_token.py` 为**新增迁移**，无迁移升降级测试（CI 已校验 `upgrade head` 可用） |
-| G-11 | `scripts/seed_products.py` 无单测（CI 已校验脚本可执行） |
+| G-11 | `scripts/seed_products.py` 与 `scripts/seed_pricing_rules.py` 无单测（CI 已校验两脚本可执行且幂等） |
 | G-12 | 统一错误封套与 `trace_id` 已实现，但未验证 `trace_id` 在跨服务/日志侧的贯通 |
 | G-12 | 无评测测试：LLM 意图识别、多轮追问、提示注入防护（当前为 `MockAgentProvider`，见 9.1） |
+| G-15 | 报价版本链无「版本回退到旧版」能力，`revise` 只能向前派生；作废整条链的语义也未定义 | 客户要求恢复旧方案时只能重新报价，无法复用旧版本号 |
 
 ### 8.4 静态检查缺口
 
@@ -453,13 +514,16 @@ tests/test_requirement.py           24 passed   # P0：需求抽取、缺口、�
 |---|---|---|
 | ~~第一优先~~ | ~~补齐 G-01 ~ G-04（状态机、过期、版本冲突、鉴权）~~ **已完成** | 新增用例 ≥ 8 个 |
 | ~~P0~~ | ~~Agent 编排：多轮会话、Tool Calling、报价接通、注入防护~~ **已完成** | `test_agent_orchestration.py` + `test_requirement.py`（44 例） |
+| ~~P1~~ | ~~M2 商务补齐：规则库、税费/折扣、报价版本递增、重新报价~~ **已完成** | `test_pricing.py` + `test_pricing_rules_api.py` + `test_quote_revision.py`（45 例） |
 | 第二优先 | 引入 MySQL 容器化集成测试，消除方言差异 | `docker-compose` 测试 profile |
 | 第三优先 | 接入真实 LLM 并建立评测样本库 | `skills/*/evals/` + 固定回归集 |
-| 第四优先 | 非功能测试：P95 延迟、限流、可观测性 | 压测脚本 + 指标看板 |
+| 第四优先 | 规则库运营 CRUD 与审批流（`/admin/pricing-rules`） | 运营后台 + 审批用例 |
+| 第五优先 | 非功能测试：P95 延迟、限流、可观测性 | 压测脚本 + 指标看板 |
 
 ## 13. 变更记录
 
 | 版本 | 日期 | 变更内容 | 作者 |
 |---|---|---|---|
+| v1.2.0 | 2026-10-06 | P1：新增价格规则库（19 例）、规则端到端定价（9 例）、报价版本递增与重新报价（17 例）共 45 例；基线更新为 140 passed；CI 增加价格种子脚本门禁；关闭「税费/折扣未实现」缺口 | NewStudent258 |
 | v1.1.0 | 2026-10-04 | P0：新增 Agent 编排与需求抽取 44 例用例；基线更新为 95 passed；关闭静态检查缺口；重写 §9.1 Agent 边界 | NewStudent258 |
 | v1.0.0 | 2026-09-30 | 首版：定义测试分层、9 个用例清单、执行基线、12 项缺口 | NewStudent258 |

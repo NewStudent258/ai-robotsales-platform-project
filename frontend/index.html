@@ -37,8 +37,10 @@
       </div>
       <div id="quote-step-review" hidden>
         <p class="quote-ref" id="quote-ref"></p><div id="quote-lines"></div>
-        <dl class="quote-totals"><div><dt>小计</dt><dd id="quote-subtotal"></dd></div><div><dt>税额</dt><dd id="quote-tax"></dd></div><div class="grand-total"><dt>合计</dt><dd id="quote-total"></dd></div></dl>
+        <dl class="quote-totals"><div><dt>小计</dt><dd id="quote-subtotal"></dd></div><div id="quote-discount-row" hidden><dt>折扣</dt><dd id="quote-discount"></dd></div><div><dt>税额</dt><dd id="quote-tax"></dd></div><div class="grand-total"><dt>合计</dt><dd id="quote-total"></dd></div></dl>
+        <ul class="quote-rules" id="quote-rules" hidden></ul>
         <p class="quote-expiry" id="quote-expiry"></p>
+        <p class="quote-versions" id="quote-versions" hidden></p>
         <label class="terms"><input type="checkbox" id="quote-terms" />我已核对产品、数量、金额和报价有效期，并确认创建订单。</label>
         <button class="quote-back" id="edit-configuration" type="button">修改数量或联系人</button>
         <button class="button button-primary" id="confirm-order" type="button" disabled>确认报价并创建订单 <span>→</span></button>

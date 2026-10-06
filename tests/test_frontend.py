@@ -18,7 +18,18 @@ async def test_frontend_home_and_static_assets(client):
     assert "/api/v1/assistant/quote-token" in script.text
     assert "ensureQuoteToken" in script.text
     assert "reviewAssistantQuote" in script.text
+    # P1：金额构成与版本链必须展示，修改配置走 /revise 且带乐观锁。
+    assert "renderQuoteTotals" in script.text
+    assert "/revise" in script.text
+    assert "expected_version" in script.text
+    assert "quote-discount" in script.text
+    assert "applied_rules" in script.text
     assert "innerHTML" not in script.text
+
+    # P1 新增的金额与版本展示节点必须真实存在于页面中，否则脚本会静默失效。
+    assert 'id="quote-discount"' in home.text
+    assert 'id="quote-rules"' in home.text
+    assert 'id="quote-versions"' in home.text
 
     sales = await client.get("/sales")
     assert sales.status_code == 200

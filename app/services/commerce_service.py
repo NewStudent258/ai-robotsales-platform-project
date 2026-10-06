@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.commerce import IdempotencyRecord, Order, OrderEvent, Quote, QuoteItem
 from app.models.product import Product
 from app.schemas.commerce import QuoteCreateRequest
+from app.services.pricing_service import PriceLine, PriceResult, PricingService
+
+# 报价有效期（天）。创建与重新报价共用，避免两处漂移。
+QUOTE_VALIDITY_DAYS = 7
 
 # ARCH.md §3 有限状态机：终态出度为 0，必须显式列出以免 setdefault 回退为空集。
 ORDER_TRANSITIONS: dict[str, set[str]] = {
@@ -31,6 +35,10 @@ ORDER_TRANSITIONS: dict[str, set[str]] = {
 # 允许从这些报价状态创建订单：已确认，或此前已为该报价成功建单（幂等重放）。
 ORDERABLE_QUOTE_STATUSES = {"CONFIRMED", "ORDER_CREATED"}
 
+# 不允许被重新报价的状态：已建单/被取代/已过期的报价必须保持原样，
+# 否则已成交或已失效的金额会被静默改写，审计链断裂。
+NON_REVISABLE_STATUSES = {"ORDER_CREATED", "SUPERSEDED", "EXPIRED"}
+
 
 def _number(prefix: str) -> str:
     return f"{prefix}-{datetime.now(timezone.utc):%Y%m%d%H%M%S}-{uuid4().hex[:6].upper()}"
@@ -47,6 +55,69 @@ class CommerceService:
         self.session = session
 
     async def create_quote(self, payload: QuoteCreateRequest) -> Quote:
+        products = await self._load_products(payload)
+        by_id = {product.id: product for product in products}
+
+        lines: list[PriceLine] = []
+        for item in payload.items:
+            product = by_id[item.product_id]
+            line_total = (product.base_price * item.quantity).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            lines.append(
+                PriceLine(
+                    product_id=product.id,
+                    product_name=product.name,
+                    unit_price=product.base_price,
+                    quantity=item.quantity,
+                    line_total=line_total,
+                )
+            )
+
+        pricing = PricingService(self.session)
+        rules = await pricing.load_active_rules()
+        result = pricing.evaluate(
+            rules,
+            lines,
+            context={"currency": products[0].currency, "industry": payload.industry},
+        )
+
+        quote = Quote(
+            quote_number=_number("Q"),
+            access_token=uuid4().hex + uuid4().hex,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            currency=result.currency,
+            subtotal=result.subtotal,
+            discount=result.discount,
+            tax=result.tax,
+            total=result.total,
+            status="PENDING_CONFIRMATION",
+            version=1,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=QUOTE_VALIDITY_DAYS),
+            snapshot=self._build_snapshot(result, payload),
+        )
+        self.session.add(quote)
+        await self.session.flush()
+        # 首版自指，使 root_quote_id 对首版同样可查（避免 NULL 分支判断）。
+        quote.root_quote_id = quote.id
+        for line in result.lines:
+            self.session.add(
+                QuoteItem(
+                    quote_id=quote.id,
+                    product_id=line.product_id,
+                    product_name=line.product_name,
+                    unit_price=line.unit_price,
+                    quantity=line.quantity,
+                    line_total=line.line_total,
+                )
+            )
+        await self.session.commit()
+        await self.session.refresh(quote)
+        return quote
+
+    async def _load_products(self, payload: QuoteCreateRequest) -> list[Product]:
+        """加载并校验报价涉及的产品。价格一律取自服务端目录。"""
         product_ids = [item.product_id for item in payload.items]
         products = list(
             await self.session.scalars(
@@ -58,45 +129,24 @@ class CommerceService:
             raise HTTPException(status_code=404, detail={"code": "PRODUCT_NOT_FOUND"})
         if len({product.currency for product in products}) != 1:
             raise HTTPException(status_code=422, detail={"code": "MIXED_CURRENCY"})
-        subtotal = Decimal("0")
-        item_rows: list[QuoteItem] = []
-        for item in payload.items:
-            product = by_id[item.product_id]
-            line_total = (product.base_price * item.quantity).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-            subtotal += line_total
-            item_rows.append(
-                QuoteItem(
-                    product_id=product.id,
-                    product_name=product.name,
-                    unit_price=product.base_price,
-                    quantity=item.quantity,
-                    line_total=line_total,
-                )
-            )
-        tax = Decimal("0.00")
-        quote = Quote(
-            quote_number=_number("Q"),
-            access_token=uuid4().hex + uuid4().hex,
-            customer_name=payload.customer_name,
-            customer_email=payload.customer_email,
-            currency=products[0].currency,
-            subtotal=subtotal,
-            tax=tax,
-            total=subtotal + tax,
-            status="PENDING_CONFIRMATION",
-            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
-            snapshot={"product_ids": product_ids, "pricing_policy": "base-price-v1"},
-        )
-        self.session.add(quote)
-        await self.session.flush()
-        for item in item_rows:
-            item.quote_id = quote.id
-            self.session.add(item)
-        await self.session.commit()
-        await self.session.refresh(quote)
-        return quote
+        return products
+
+    @staticmethod
+    def _build_snapshot(result: PriceResult, payload: QuoteCreateRequest) -> dict:
+        """固化定价依据：规则版本与逐行金额，保证报价可复算、可审计。"""
+        snapshot = result.snapshot()
+        snapshot["product_ids"] = [item.product_id for item in payload.items]
+        snapshot["items"] = [
+            {
+                "product_id": line.product_id,
+                "unit_price": str(line.unit_price),
+                "quantity": line.quantity,
+                "line_total": str(line.line_total),
+            }
+            for line in result.lines
+        ]
+        snapshot["industry"] = payload.industry
+        return snapshot
 
     async def get_quote(self, quote_id: int) -> tuple[Quote, list[QuoteItem]] | None:
         quote = await self.session.get(Quote, quote_id)
@@ -106,6 +156,116 @@ class CommerceService:
             await self.session.scalars(select(QuoteItem).where(QuoteItem.quote_id == quote_id))
         )
         return quote, items
+
+    async def get_quote_history(self, quote_id: int) -> list[Quote]:
+        """返回同一报价链上的全部版本，按版本号升序。
+
+        链以 `root_quote_id` 聚合：首版自指，后续版本指向首版。
+        """
+        quote = await self.session.get(Quote, quote_id)
+        if quote is None:
+            return []
+        root_id = quote.root_quote_id or quote.id
+        versions = list(
+            await self.session.scalars(
+                select(Quote)
+                .where((Quote.id == root_id) | (Quote.root_quote_id == root_id))
+                .order_by(Quote.version.asc(), Quote.id.asc())
+            )
+        )
+        return versions
+
+    async def revise_quote(
+        self, quote_id: int, payload: QuoteCreateRequest, expected_version: int
+    ) -> Quote:
+        """基于既有报价生成新版本。
+
+        P1 语义（已确认）：**新建一条 Quote 行**并通过 `root_quote_id` 关联，
+        旧报价标记 `SUPERSEDED`。不就地改写原报价——否则已确认报价的
+        审计链会断裂，且历史金额不可追溯。
+
+        `expected_version` 为乐观锁：调用方回传其读到的版本号，
+        与库中不一致时拒绝，避免基于过期视图覆盖他人修改。
+        """
+        original = await self.session.get(Quote, quote_id, with_for_update=True)
+        if original is None:
+            raise HTTPException(status_code=404, detail={"code": "QUOTE_NOT_FOUND"})
+        if original.version != expected_version:
+            raise HTTPException(status_code=409, detail={"code": "QUOTE_VERSION_CONFLICT"})
+        if original.status in NON_REVISABLE_STATUSES:
+            raise HTTPException(status_code=409, detail={"code": "QUOTE_NOT_REVISABLE"})
+
+        products = await self._load_products(payload)
+        by_id = {product.id: product for product in products}
+        # 重新报价必须保持币种一致，否则新旧版本不可比。
+        if products[0].currency != original.currency:
+            raise HTTPException(status_code=422, detail={"code": "MIXED_CURRENCY"})
+
+        lines: list[PriceLine] = []
+        for item in payload.items:
+            product = by_id[item.product_id]
+            line_total = (product.base_price * item.quantity).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            lines.append(
+                PriceLine(
+                    product_id=product.id,
+                    product_name=product.name,
+                    unit_price=product.base_price,
+                    quantity=item.quantity,
+                    line_total=line_total,
+                )
+            )
+
+        pricing = PricingService(self.session)
+        rules = await pricing.load_active_rules()
+        result = pricing.evaluate(
+            rules,
+            lines,
+            context={"currency": products[0].currency, "industry": payload.industry},
+        )
+
+        root_id = original.root_quote_id or original.id
+        # 版本号取链上最大值 +1，而不是 original.version + 1：
+        # 若曾出现并发改写，前者能避免版本号撞车。
+        chain = await self.get_quote_history(quote_id)
+        next_version = max((row.version for row in chain), default=original.version) + 1
+
+        revision = Quote(
+            quote_number=_number("Q"),
+            access_token=uuid4().hex + uuid4().hex,
+            customer_name=payload.customer_name,
+            customer_email=payload.customer_email,
+            currency=result.currency,
+            subtotal=result.subtotal,
+            discount=result.discount,
+            tax=result.tax,
+            total=result.total,
+            status="PENDING_CONFIRMATION",
+            version=next_version,
+            root_quote_id=root_id,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=QUOTE_VALIDITY_DAYS),
+            snapshot=self._build_snapshot(result, payload) | {"revised_from": original.id},
+        )
+        self.session.add(revision)
+        await self.session.flush()
+        for line in result.lines:
+            self.session.add(
+                QuoteItem(
+                    quote_id=revision.id,
+                    product_id=line.product_id,
+                    product_name=line.product_name,
+                    unit_price=line.unit_price,
+                    quantity=line.quantity,
+                    line_total=line.line_total,
+                )
+            )
+        # 旧版标记被取代，保留其金额与状态用于审计。
+        original.status = "SUPERSEDED"
+        original.superseded_by_id = revision.id
+        await self.session.commit()
+        await self.session.refresh(revision)
+        return revision
 
     async def require_quote_access(self, quote_id: int, access_token: str) -> Quote:
         quote = await self.session.get(Quote, quote_id)
